@@ -1,0 +1,111 @@
+<!-- Ten Minute Physics - [01] CannonBall -->
+
+<!DOCTYPE html>
+    <head>
+        <title>Cannon Ball</title>
+    </head>
+
+    <body>
+        <canvas id="myCanvas" style="border:2px solid"></canvas>
+    
+        <script>
+            
+            // canvas setup ----------------------------------
+            let canvas = document.getElementById("myCanvas");
+            let c = canvas.getContext("2d");
+            
+            canvas.width = window.innerWidth - 25;
+            canvas.height = window.innerHeight - 25;
+            
+            const simMinWidth = 20.0;
+            const cScale = Math.min(canvas.width, canvas.height) / simMinWidth;
+            const simWidth = canvas.width / cScale;
+            const simHeight = canvas.height / cScale;
+            
+            // coordinate mapping (physics simulation to browser)
+            function cX(pos) {
+                return pos.x * cScale;
+            }
+            
+            function cY(pos) {
+                return canvas.height - pos.y * cScale;
+            }
+
+            // scene -----------------------------------------
+            const gravity = { x: 0, y: -10 };
+            const collisionLossFactor = 0.8.toFixed(2);
+            let lastTime = performance.now();
+            
+            let ball = {
+                radius : 0.8,
+                pos : { x: 0.2, y : 0.2 },
+                vel : { x: 10.0, y : 15.0 }
+            };
+            
+            // drawing ---------------------------------------
+            function draw() {
+                c.clearRect(0, 0, canvas.width, canvas.height);
+
+                c.fillStyle = "#00FF00";
+                
+                c.beginPath();
+                c.arc(
+                    cX(ball.pos), cY(ball.pos), cScale * ball.radius, 0, 2.0 * Math.PI
+                );
+                c.closePath();
+                c.fill();
+            }
+            
+            function fixedNumber(value) {
+                return value.toFixed(2);
+            }
+
+            // simulation ------------------------------------
+            function simulation(currentTime) {
+                // calculate delta time between ticks
+                const deltaTime = ((currentTime - lastTime) / 1000.0).toFixed(2);
+                lastTime = currentTime;
+
+                // calculate velocity
+                ball.vel.x += gravity.x.toFixed(2) * deltaTime;
+                ball.vel.y += gravity.y.toFixed(2) * deltaTime;
+                // calculate target position
+                ball.pos.x += ball.vel.x.toFixed(2) * deltaTime;
+                ball.pos.y += ball.vel.y.toFixed(2) * deltaTime;
+                
+                // left border
+                if (ball.pos.x < ball.radius) {
+                    ball.pos.x = ball.radius;
+                    ball.vel.x = -ball.vel.x.toFixed(2) * collisionLossFactor;
+                }
+                
+                // right border
+                if (ball.pos.x > simWidth - ball.radius) {
+                    ball.pos.x = simWidth - ball.radius;
+                    ball.vel.x = -ball.vel.x.toFixed(2) * collisionLossFactor;
+                }
+                
+                // down border
+                if (ball.pos.y < ball.radius) {
+                    ball.pos.y = ball.radius;
+                    ball.vel.y = -ball.vel.y.toFixed(2) * collisionLossFactor;
+                }
+
+                // up border
+                if (ball.pos.y > simHeight - ball.radius) {
+                    ball.pos.y = simHeight - ball.radius;
+                    ball.vel.y = -ball.vel.y.toFixed(2) * collisionLossFactor;
+                }
+            }
+            
+            // make browser to call us repeatedly ------------
+            function update(currentTime) {
+                simulation(currentTime);
+                draw();
+                requestAnimationFrame(update);
+            }
+            
+            update(0);
+        </script>
+    
+    </body>
