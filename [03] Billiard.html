@@ -35,6 +35,7 @@
 
     <body>
 
+        <button id="buttonRun" class="button" onclick="run()">Run</button>
         <button class="button" onclick="setupScene()">Restart</button>
         Restitution <label for="restitutionSlider"></label><input type = "range" min = "0" max = "10" value = "10" id = "restitutionSlider" class = "slider">
         <br>
@@ -52,6 +53,17 @@
             const cScale = Math.min(canvas.width, canvas.height) / simMinWidth;
             const simWidth = canvas.width / cScale;
             const simHeight = canvas.height / cScale;
+
+            function run() {
+                let button = document.getElementById("buttonRun");
+
+                if (physicsScene.paused)
+                    button.innerHTML = "Stop";
+                else
+                    button.innerHTML = "Run";
+
+                physicsScene.paused = !physicsScene.paused;
+            }
 
             // coordinate mapping (physics simulation to browser) ------------------------------------------------------
             function cX(pos) {
@@ -140,7 +152,8 @@
                     // restitution coefficient:
                     // 1: elastic collision, with no energy loss
                     // 0: inelastic collision, with some energy loss
-                    restitution : 1.0
+                    restitution : 1.0,
+                    paused : true,
                 };
 
             function setupScene() {
@@ -235,8 +248,11 @@
                 }
             }
 
-            // simulation ----------------------------------------------------------------------------------------------
-            function simulation() {
+            // simulate ----------------------------------------------------------------------------------------------
+            function simulate() {
+                if (physicsScene.paused)
+                    return;                
+                
                 // loop for each collision
                 // TODO: this algorithm is too slow, optimize it later
                 for (let i = 0; i < physicsScene.balls.length; i++) {
@@ -249,7 +265,7 @@
                         let ball2 = physicsScene.balls[j];
                         handleBallCollision(ball1, ball2, physicsScene.restitution);
                     }
-
+                    
                     // handle border problem
                     handleWallCollision(ball1, physicsScene.worldSize);
                 }                
@@ -257,7 +273,7 @@
 
             // make browser to call us repeatedly ----------------------------------------------------------------------
             function update() {
-                simulation();
+                simulate();
                 draw();
                 requestAnimationFrame(update);
             }

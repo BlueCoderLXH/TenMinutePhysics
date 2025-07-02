@@ -60,8 +60,8 @@
                 return value.toFixed(2);
             }
 
-            // simulation ------------------------------------
-            function simulation(currentTime) {
+            // simulate ------------------------------------
+            function simulate(currentTime) {
                 // calculate delta time between ticks
                 const deltaTime = ((currentTime - lastTime) / 1000.0).toFixed(2);
                 lastTime = currentTime;
@@ -100,7 +100,7 @@
             
             // make browser to call us repeatedly ------------
             function update(currentTime) {
-                simulation(currentTime);
+                simulate(currentTime);
                 draw();
                 requestAnimationFrame(update);
             }
