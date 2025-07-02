@@ -1,0 +1,298 @@
+﻿<!-- Ten Minute Physics - [05] Bead -->
+
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <head>
+        <title>Bead</title>
+        <style>
+            body {
+                font-family: verdana,serif;
+                font-size: 15px;
+            }
+            .button {
+                background-color: #606060;
+                border: none;
+                color: white;
+                padding: 10px 32px;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+
+    <body>
+
+        <button class="button" onclick="setupScene()">Restart</button>
+        <button class="button" onclick="run()">Run</button>
+        <button class="button" onclick="step()">Step</button>
+        <br>
+        <br>
+        <span style="color: #FF0000">PBD Force: </span><span id="pbdForce" style="color: #FF0000">0</span>  &emsp; <span style="color: #00FF00">Analytic Force: </span><span id="analyticForce" style="color: #00FF00">0</span>
+        <br>
+        <br>
+    
+        <canvas id="myCanvas" style="border:2px solid"></canvas>
+    
+        <script>
+            // canvas setup --------------------------------------------------------------------------------------------
+            let canvas = document.getElementById("myCanvas");
+            let c = canvas.getContext("2d");
+        
+            canvas.width = window.innerWidth - 20;
+            canvas.height = window.innerHeight - 100;
+        
+            const simMinWidth = 2.0;
+            const cScale = Math.min(canvas.width, canvas.height) / simMinWidth;
+            const simWidth = canvas.width / cScale;
+            const simHeight = canvas.height / cScale;
+        
+            // coordinate mapping (physics simulation to browser) ------------------------------------------------------
+            function cX(pos) {
+                return pos.x * cScale;
+            }
+        
+            function cY(pos) {
+                return canvas.height - pos.y * cScale;
+            }
+        
+            // vector math ---------------------------------------------------------------------------------------------
+            class Vector2 {
+                constructor(x = 0.0, y = 0.0) {
+                    this.x = x;
+                    this.y = y;
+                }
+        
+                set(v) {
+                    this.x = v.x; this.y = v.y;
+                }
+        
+                clone() {
+                    return new Vector2(this.x, this.y);
+                }
+        
+                add(v, s = 1.0) {
+                    this.x += v.x * s;
+                    this.y += v.y * s;
+                    return this;
+                }
+        
+                addVectors(a, b) {
+                    this.x = a.x + b.x;
+                    this.y = a.y + b.y;
+                    return this;
+                }
+        
+                subtract(v, s = 1.0) {
+                    this.x -= v.x * s;
+                    this.y -= v.y * s;
+                    return this;
+                }
+        
+                subtractVectors(a, b) {
+                    this.x = a.x - b.x;
+                    this.y = a.y - b.y;
+                    return this;
+                }
+        
+                length() {
+                    return Math.sqrt(this.x * this.x + this.y * this.y);
+                }
+        
+                scale(s) {
+                    this.x *= s;
+                    this.y *= s;
+                }
+        
+                dot(v) {
+                    return this.x * v.x + this.y * v.y;
+                }
+                
+                perp() {
+                    return new Vector2(-this.y, this.x);
+                }
+            }
+        
+            // Physics scene -------------------------------------------------------------------------------------------
+
+            let physicsScene = {
+                gravity : new Vector2(0.0, -10.0),
+                dt : 1.0 / 60.0,
+                numSteps : 1000,
+                wireCenter: new Vector2(),
+                wireRadius: 0.0,
+                bead : null,
+                analyticBead: null,
+                pause : true
+            };
+            
+            // Bead with simple PBD algorithm to update target position
+            class Bead {
+                constructor(radius, mass, pos) {
+                    this.radius = radius;
+                    this.mass = mass;
+                    this.pos = pos.clone();
+                    this.prevPos = pos.clone();
+                    this.vel = new Vector2();
+                }
+                
+                simulate(dt) {
+                    let ps = physicsScene;
+                    let force;
+                    
+                    this.startStep(dt, ps.gravity);
+                    force = this.keepOnWire(dt, ps.wireCenter, ps.wireRadius);
+                    this.endStep(dt);
+                    
+                    return force;
+                }
+                
+                // startStep simulation:
+                // 1. calc vel by gravity roughly
+                // 2. record previous position
+                // 3. calc current position roughly
+                startStep(dt, gravity) {
+                    this.vel.add(gravity, dt);
+                    this.prevPos.set(this.pos);
+                    this.pos.add(this.vel, dt);
+                }
+
+                // keepOnWire simulation: constraint bead to circle
+                keepOnWire(dt, center, radius) {
+                    let dir = new Vector2();
+                    dir.subtractVectors(this.pos, center);
+                    let len = dir.length();
+                    if (len === 0.0) return;
+                    dir.scale(1.0 / len);
+                    let lambda = radius - len;
+                    this.pos.add(dir, lambda);
+
+                    return Math.abs(lambda) / (dt * dt);
+                }
+                
+                // endStep simulation: 
+                // 1. recalculate vel based PBD
+                // 2. this may lead energy loss for using straight line to simulate arc line
+                endStep(dt) {
+                    this.vel.subtractVectors(this.pos, this.prevPos);
+                    this.vel.scale(1.0 / dt);
+                }
+            }
+            
+            // Bead with analytic solution
+            // 1. Calculate angular acceleration
+            // 2. Calculate angular velocity
+            // 3. Calculate angle
+            // 4. Calculate relative position
+            // Link to see the theory: https://www.math.sinica.edu.tw/media/pdf/d272/27205.pdf
+            class AnalyticBead {
+                constructor(radius, beadRadius, angle) {
+                    this.radius = radius;
+                    this.beadRadius = beadRadius;
+                    this.angle = angle;
+                    this.omega = 0.0;
+                }
+                
+                simulate(dt, gravity) {
+                    let omega_a = -gravity / this.radius * Math.sin(this.angle);
+                    this.omega += omega_a * dt;
+                    this.angle += this.omega * dt;
+                    
+                    let centrifugalForce = this.omega * this.omega * this.radius;
+                    return centrifugalForce + gravity * Math.cos(this.angle);
+                }
+                
+                getPos(relativePos) {
+                    return new Vector2(
+                        Math.sin(this.angle) * this.radius,
+                        -Math.cos(this.angle) * this.radius).add(relativePos);
+                }
+            }
+        
+            function setupScene() {
+                let ps = physicsScene;
+                
+                ps.wireCenter.x = simWidth / 2.0;
+                ps.wireCenter.y = simHeight / 2.0;
+                ps.wireRadius = simMinWidth * 0.4;
+                
+                let pos = new Vector2(
+                    ps.wireCenter.x + ps.wireRadius,
+                    ps.wireCenter.y);
+                ps.bead = new Bead(0.1, 1.0, pos);
+                
+                ps.analyticBead = new AnalyticBead(ps.wireRadius, 0.1, 0.5 * Math.PI);
+            }
+        
+            // drawing -------------------------------------------------------------------------------------------------
+            function drawCircle(pos, radius, filled) {
+                c.beginPath();
+                c.arc(
+                    cX(pos), cY(pos), cScale * radius, 0.0, 2.0 * Math.PI);
+                c.closePath();
+                
+                if (filled)
+                    c.fill();
+                else
+                    c.stroke();
+            }
+            
+            function draw() {
+                let ps = physicsScene;
+                
+                c.clearRect(0, 0, canvas.width, canvas.height);
+        
+                c.strokeStyle = "#000000";
+                c.lineWidth = 2.0;
+                drawCircle(ps.wireCenter, ps.wireRadius, false);
+                
+                c.fillStyle = "#FF0000";
+                let bead = ps.bead;
+                drawCircle(bead.pos, bead.radius, true);
+                
+                c.fillStyle = "#00FF00";
+                let analyticBead = ps.analyticBead;
+                drawCircle(analyticBead.getPos(ps.wireCenter), analyticBead.beadRadius, true);
+            }
+        
+            // simulation ----------------------------------------------------------------------------------------------
+            function simulate() {
+                let ps = physicsScene;
+                if (ps.paused) return;
+                
+                const sdt = ps.dt / ps.numSteps;
+
+                let pbdForce, analyticForce;
+                for (let step = 0; step < ps.numSteps; step++) {
+                    pbdForce = ps.bead.simulate(sdt);
+                    analyticForce = ps.analyticBead.simulate(sdt, -ps.gravity.y);
+                }
+                
+                document.getElementById("pbdForce").innerHTML = pbdForce.toFixed(2);
+                document.getElementById("analyticForce").innerHTML = analyticForce.toFixed(2);
+            }
+        
+            // make browser to call us repeatedly ----------------------------------------------------------------------
+            function update() {
+                simulate();
+                draw();
+                requestAnimationFrame(update);
+            }
+
+            function run() {
+                physicsScene.paused = false;
+            }
+
+            function step() {
+                physicsScene.paused = false;
+                simulate();
+                physicsScene.paused = true;
+            }
+        
+            setupScene();
+            update();
+            
+        </script>
+    </body>
+        
