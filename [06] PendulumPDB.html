@@ -1,0 +1,286 @@
+﻿<!-- Ten Minute Physics - [06] PendulumPDB -->
+
+<!DOCTYPE html>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <head>
+        <title>PendulumPDB</title>
+        <style>
+            body {
+                font-family: verdana,serif;
+                font-size: 15px;
+            }
+            .button {
+                background-color: #606060;
+                border: none;
+                color: white;
+                padding: 10px 32px;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+            }
+        </style>        
+    </head>
+
+    <body>
+        <button class="button" onclick="restart()">Restart</button>
+        <button class="button" onclick="run()">Run</button>
+        <button class="button" onclick="step()">Step</button>
+        <button id="drawTrailBtn" class="button" onclick="onDrawTrail()">DrawTrail</button>
+        
+        <canvas id = "myCanvas"></canvas>
+
+        <!-- Ref three library for 3d/2d -->
+        <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>        
+        
+        <script>
+            let canvas = document.getElementById("myCanvas");
+            let c = canvas.getContext("2d");
+
+            canvas.width = window.innerWidth - 20;
+            canvas.height = window.innerHeight - 20;
+
+            const simMinWidth = 1.0;
+            const cScale = Math.min(canvas.width, canvas.height) / simMinWidth;
+            
+            function cX(pos) { return canvas.width / 2 + pos.x * cScale; }
+            function cY(pos) { return 0.3 * canvas.height - pos.y * cScale; }
+            
+            // Three-part pendulum simulation by PDB algorithm
+            class Pendulum {
+                constructor(masses, lengths, angles, color) {
+                    // initial physics
+                    this.masses = [0.0];
+                    this.lengths = [0.0];
+                    this.pos = [new THREE.Vector2(0.0, 0.0)];
+                    this.prevPos = [new THREE.Vector2(0.0, 0.0)];
+                    this.vel = [new THREE.Vector2(0.0, 0.0)];
+                    
+                    let pos = new THREE.Vector2();
+                    for (let i = 0; i < masses.length; i++) {
+                        this.masses.push(masses[i]);
+                        this.lengths.push(lengths[i]);
+
+                        pos.add(
+                            new THREE.Vector2(
+                                lengths[i] * Math.cos(angles[i]),
+                                lengths[i] * Math.sin(angles[i]))
+                        );
+                        this.pos.push(pos.clone());
+                        this.prevPos.push(pos.clone());
+                        
+                        this.vel.push(new THREE.Vector2(0.0, 0.0));
+                    }
+
+                    // initial trail
+                    this.trail = [];
+                    this.trailStart = 0;
+                    this.trailEnd = 0;
+                    for (let i = 0; i < 500; i++) {
+                        this.trail.push(new THREE.Vector2());
+                    }
+                    
+                    this.color = color;
+                }
+                
+                simulate(dt, gravity)
+                {
+                    let p = this;
+                    
+                    // update PDB(1)
+                    // 1. update every ball's velocity with gravity
+                    // 2. record previous position
+                    // 3. update current position
+                    for (let i = 1; i < p.masses.length; i++) {
+                        p.vel[i].y += dt * gravity;
+                        
+                        p.prevPos[i] = p.pos[i].clone();
+                        
+                        p.pos[i].addScaledVector(p.vel[i], dt);
+                    }
+
+                    // update PDB(2)
+                    // constraint : constrain every two balls that are linked by line
+                    for (let i = 1; i < p.masses.length; i++) {
+                        let dir = new THREE.Vector2();
+                        dir.subVectors(p.pos[i], p.pos[i-1]);
+                        let len = dir.length();
+                        let normal_dir = dir.normalize();
+                        
+                        let m1 = p.masses[i - 1];
+                        let m2 = p.masses[i];
+                        let w1 = m1 > 0.0 ? 1.0 / m1 : 0.0;
+                        let w2 = m2 > 0.0 ? 1.0 / m2 : 0.0;
+                        
+                        let corr1 = normal_dir.clone().multiplyScalar(w1 / (w1 + w2) * (len - p.lengths[i]));
+                        let corr2 = normal_dir.clone().multiplyScalar(-w2 / (w1 + w2) * (len - p.lengths[i]));
+
+                        p.pos[i - 1].addVectors(p.pos[i - 1], corr1);
+                        p.pos[i].addVectors(p.pos[i], corr2);
+                    }
+
+                    // update PDB(3)
+                    // update new velocity based on current position and previous position
+                    for (let i = 1; i < p.masses.length; i++) {
+                        let deltaPos = new THREE.Vector2();
+                        deltaPos.subVectors(p.pos[i], p.prevPos[i]);
+                        
+                        p.vel[i] = deltaPos.divideScalar(dt);
+                    }
+                }
+
+                updateTrail() {
+                    let p = this;
+                    let trailLen = p.trail.length;
+                    
+                    p.trail[p.trailEnd] = p.pos[3].clone();
+                    
+                    p.trailEnd = (p.trailEnd + 1) % trailLen;
+                    if (p.trailEnd === p.trailStart)
+                    {
+                        p.trailStart = (p.trailStart + 1) % trailLen;
+                    }
+                }                
+                
+                draw() {
+                    let p = this;
+
+                    c.strokeStyle = "#303030";
+                    c.lineWidth = 10;
+                    c.beginPath();
+                    // create new coordinates based on the first point
+                    c.moveTo(cX(p.pos[0]), cY(p.pos[0]));
+                    for (let i = 1; i < p.masses.length; i++)
+                        c.lineTo(cX(p.pos[i]), cY(p.pos[i]));
+                    c.stroke();
+                    
+                    c.lineWidth = 1;
+                    c.fillStyle = this.color;
+                    for (let i = 1; i < p.masses.length; i++) {
+                        let r = 0.05 * Math.sqrt(p.masses[i]);
+                        c.beginPath();
+                        c.arc(
+                            cX(p.pos[i]), cY(p.pos[i]), cScale * r, 0.0, 2.0 * Math.PI);
+                        c.closePath();
+                        c.fill();
+                    }
+                }
+                
+                drawTrail() {
+                    let p = this;
+
+                    c.strokeStyle = this.color;
+                    c.lineWidth = 2.0;
+
+                    if (p.trailStart !== p.trailEnd) {
+                        c.beginPath();
+                        c.moveTo(cX(p.trail[p.trailStart]), cY(p.trail[p.trailStart]));
+                        let i = (p.trailStart + 1) % p.trail.length;
+                        while (i !== p.trailEnd) {
+                            c.lineTo(cX(p.trail[i]), cY(p.trail[i]));
+                            i = (i + 1) % p.trail.length;
+                        }
+                        c.stroke();
+                    }                    
+                }
+            }
+
+            let physicsScene = {
+                gravity : -10.0,
+                dt : 0.01,
+                numSubSteps : 200,
+                pendulums : [],
+                paused : true,
+                drawTrail : false
+            };
+            
+            function setupScene() {
+                let ps = physicsScene;
+                
+                let masses = [[1.0, 0.5, 0.3], [1, 0.5, 0.3], [1, 0.5, 0.3]];
+                let lengths = [[0.12, 0.12, 0.12], [0.15, 0.15, 0.15], [0.18, 0.18, 0.18]];
+                let angles = [[0, 0.5 * Math.PI, 0.5 * Math.PI], [0, 0.5 * Math.PI, 0.5 * Math.PI], [0, 0.5 * Math.PI, 0.5 * Math.PI]];
+                //              Gold        Pink    grass-green
+                let colors = ["#FFD700", "#FFC0CB", "#99E64D"];
+
+                for (let i = 0; i < colors.length; i++) {
+                    ps.pendulums.push(new Pendulum(masses[i], lengths[i], angles[i], colors[i]));
+                }
+            }
+
+            function draw() {
+                let ps = physicsScene;
+                
+                c.fillStyle = "#000000";
+                c.fillRect(0, 0, canvas.width, canvas.height);
+
+                for (let i = 0; i < ps.pendulums.length; i++) {
+                    let pendulum = ps.pendulums[i];
+                    
+                    if (ps.drawTrail) {
+                        pendulum.drawTrail();
+                    }
+                    
+                    pendulum.draw();
+                }
+            }
+
+            function simulate() {
+                let ps = physicsScene;
+                if (ps.paused) return;
+                
+                const sdt = ps.dt / ps.numSubSteps;
+                const trailStep = ps.numSubSteps / 2;
+                
+                for (let i = 0; i < ps.pendulums.length; i++) {
+                    let pendulum = ps.pendulums[i];
+
+                    for (let step = 0; step < ps.numSubSteps; step++) {
+                        pendulum.simulate(sdt, ps.gravity);
+
+                        // reduce trail sample frequency to make it longer
+                        if (step % trailStep === 0) {
+                            pendulum.updateTrail();
+                        }
+                    }                    
+                }
+            }
+
+            function update() {
+                simulate();
+                draw();
+                requestAnimationFrame(update);
+            }
+            
+            function restart() {
+                location.reload();
+            }
+
+            function run() {
+                physicsScene.paused = false;
+            }
+
+            function step() {
+                physicsScene.paused = false;
+                simulate();
+                physicsScene.paused = true;
+            }
+            
+            function onDrawTrail() {
+                physicsScene.drawTrail = !physicsScene.drawTrail;
+                
+                let button = document.getElementById("drawTrailBtn");
+                if (physicsScene.drawTrail)
+                    button.innerHTML = "NotDrawTrail";
+                else
+                    button.innerHTML = "DrawTrail";
+                
+                console.log("onDrawTrail ", physicsScene.drawTrail);
+            }
+
+            setupScene();
+            update();
+
+        </script>
+    </body>
