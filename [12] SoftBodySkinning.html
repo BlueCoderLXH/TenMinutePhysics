@@ -56,9 +56,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
         <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
 
-        <script src="[10] MathMethods.js"></script>
-        <script src="[11] DenseHash.js"></script>
-        <script src="[12] SoftBodySkinningData.js"></script>
+        <script src="Algorithms/MathMethods.js"></script>
+        <script src="Algorithms/DenseHash.js"></script>
+        <script src="Algorithms/Grabber.js"></script>
+        <script src="Physics/Constraints.js"></script>
+        <script src="GeometryData/[12] SoftBodySkinningData.js"></script>
     
         <script>
             let gThreeScene;
@@ -66,34 +68,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
             let gCamera;
             let gCameraControl;
             let gGrabber;
-            let gMouseDown = false;
-        
-            // ------------------------------------------------------------------
-        
-            let gPhysicsScene =
-                {
+            
+            let gPhysicsScene = {
                     gravity : [0.0, -10.0, 0.0],
                     dt : 1.0 / 60.0,
                     numSubsteps : 10,
                     paused: true,
                     showTets : false,
                     objects: [],
-                };
-        
-            // ------------------------------------------------------------------
-            function onShowTets()
-            {
-                gPhysicsScene.showTetMesh = !gPhysicsScene.showTetMesh;
-                for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                    gPhysicsScene.objects[i].tetMesh.visible = gPhysicsScene.showTetMesh;
-            }
+            };
         
             // ------------------------------------------------------------------
             class SoftBody {
-                constructor(tetMesh, visMesh, scene, edgeCompliance = 0.0, volCompliance = 0.0)
-                {
+                static Layer = 1;
+                
+                constructor(tetMesh, visMesh, scene, edgeCompliance = 0.0, volCompliance = 0.0) {
                     // physics
-        
                     this.numParticles = tetMesh.verts.length / 3;
                     this.numTets = tetMesh.tetIds.length / 4;
                     this.pos = new Float32Array(tetMesh.verts);
@@ -108,8 +98,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         
                     this.edgeCompliance = edgeCompliance;
                     this.volCompliance = volCompliance;
-        
-                    this.temp = new Float32Array(4 * 3);
+                    
                     this.grads = new Float32Array(4 * 3);
         
                     this.grabId = -1;
@@ -117,8 +106,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         
                     this.initPhysics();
         
-                    // simplified tet mesh
-        
+                    // create simplified tet mesh
                     let geometry = new THREE.BufferGeometry();
                     geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
                     geometry.setIndex(tetMesh.edgeIds);
@@ -128,8 +116,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     scene.add(this.tetMesh);
                     this.tetMesh.visible = false;
         
-                    // visual(high precise) embedded mesh
-        
+                    // create visual(high precise) embedded mesh
                     this.numVisVerts = visMesh.verts.length / 3;
                     this.skinningInfo = new Float32Array(4 * this.numVisVerts);
                     this.computeSkinningInfo(visMesh.verts);
@@ -142,19 +129,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.visMesh = new THREE.Mesh(geometry, visMaterial);
                     this.visMesh.castShadow = true;
                     this.visMesh.userData = this;	// for raycasting
-                    this.visMesh.layers.enable(1);
+                    this.visMesh.layers.enable(SoftBody.Layer);
                     scene.add(this.visMesh);
                     geometry.computeVertexNormals();
                     this.updateVisMesh();
-        
-                    this.volIdOrder = [[1,3,2], [0,2,3], [0,3,1], [0,1,2]];
                 }
         
-                // compute barycentric coords
-                computeSkinningInfo(visVerts)
-                {
+                // compute barycentric coords for each visual mesh's vertices
+                computeSkinningInfo(visVerts) {
                     // create a hash for all vertices of the visual mesh
-        
                     let hash = new DenseHash(0.05, this.numVisVerts);
                     hash.update(visVerts);
         
@@ -173,7 +156,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     for (let i = 0; i < this.numTets; i++) {
         
                         // compute bounding sphere of tet
-        
                         tetCenter.fill(0.0);
                         for (let j = 0; j < 4; j++)
                             vecAdd(tetCenter, 0, this.pos, this.tetIds[4 * i + j], 0.25);
@@ -233,48 +215,54 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     }
                 }
         
-                getTetVolume(nr)
-                {
-                    let id0 = this.tetIds[4 * nr];
-                    let id1 = this.tetIds[4 * nr + 1];
-                    let id2 = this.tetIds[4 * nr + 2];
-                    let id3 = this.tetIds[4 * nr + 3];
-                    vecSetDiff(this.temp,0, this.pos,id1, this.pos,id0);
-                    vecSetDiff(this.temp,1, this.pos,id2, this.pos,id0);
-                    vecSetDiff(this.temp,2, this.pos,id3, this.pos,id0);
-                    vecSetCross(this.temp,3, this.temp,0, this.temp,1);
-                    return vecDot(this.temp,3, this.temp,2) / 6.0;
-                }
-        
-                initPhysics()
-                {
+                initPhysics() {
                     this.invMass.fill(0.0);
                     this.restVol.fill(0.0);
-        
+
+                    // calc inverse mass volume value of tetrahedron
                     for (let i = 0; i < this.numTets; i++) {
-                        let vol =this.getTetVolume(i);
+                        // here ρ=1 by default, so that mass equal to volume
+                        let vol = Constraints.getTetVolume(this.pos, this.tetIds, i);
                         this.restVol[i] = vol;
                         let pInvMass = vol > 0.0 ? 1.0 / (vol / 4.0) : 0.0;
+
+                        // every single point will link multi tetrahedrons, so add inverse mass value
                         this.invMass[this.tetIds[4 * i]] += pInvMass;
                         this.invMass[this.tetIds[4 * i + 1]] += pInvMass;
                         this.invMass[this.tetIds[4 * i + 2]] += pInvMass;
                         this.invMass[this.tetIds[4 * i + 3]] += pInvMass;
                     }
+
+                    // calc length of edge
                     for (let i = 0; i < this.edgeLengths.length; i++) {
                         let id0 = this.edgeIds[2 * i];
                         let id1 = this.edgeIds[2 * i + 1];
                         this.edgeLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
                     }
                 }
+
+                // XPBD simulation
+                simulate(dt, gravity) {
+                    this.preSolve(dt, gravity);
+                    this.solve(dt);
+                    this.postSolve(dt);
+                }                
         
-                preSolve(dt, gravity)
-                {
+                preSolve(dt, gravity) {
                     for (let i = 0; i < this.numParticles; i++) {
+                        // don't need to move for one's mass is infinite
                         if (this.invMass[i] === 0.0)
                             continue;
+
+                        // XPBD - step 1
+                        // - calc velocity with g and dt
+                        // - save previous position with current
+                        // - calc new position with new velocity
                         vecAdd(this.vel,i, gravity,0, dt);
                         vecCopy(this.prevPos,i, this.pos,i);
                         vecAdd(this.pos,i, this.vel,i, dt);
+
+                        // handle down border
                         let y = this.pos[3 * i + 1];
                         if (y < 0.0) {
                             vecCopy(this.pos,i, this.prevPos,i);
@@ -283,87 +271,35 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     }
                 }
         
-                solve(dt)
-                {
-                    this.solveEdges(this.edgeCompliance, dt);
-                    this.solveVolumes(this.volCompliance, dt);
+                solve(dt) {
+                    // XPBD - step 2
+                    // handle constraints
+                    // for 3d model: edge / volume
+                    // for 2d: edge
+                    // 
+                    // one distance constraint per edge
+                    // one volume constraint per tetrahedron
+                    Constraints.solveEdges(this.pos, this.edgeLengths, this.edgeIds, this.invMass, this.grads, this.edgeCompliance, dt);
+                    Constraints.solveVolumes(this.pos, this.tetIds, this.grads, this.invMass, this.restVol, this.volCompliance, dt);
                 }
         
-                postSolve(dt)
-                {
+                postSolve(dt) {
                     for (let i = 0; i < this.numParticles; i++) {
                         if (this.invMass[i] === 0.0)
                             continue;
+                        
+                        // XPBD - step 3
+                        // calc velocity with current position and previous position                        
                         vecSetDiff(this.vel,i, this.pos,i, this.prevPos,i, 1.0 / dt);
                     }
                 }
         
-                solveEdges(compliance, dt) {
-                    let alpha = compliance / dt /dt;
-        
-                    for (let i = 0; i < this.edgeLengths.length; i++) {
-                        let id0 = this.edgeIds[2 * i];
-                        let id1 = this.edgeIds[2 * i + 1];
-                        let w0 = this.invMass[id0];
-                        let w1 = this.invMass[id1];
-                        let w = w0 + w1;
-                        if (w === 0.0)
-                            continue;
-        
-                        vecSetDiff(this.grads,0, this.pos,id0, this.pos,id1);
-                        let len = Math.sqrt(vecLengthSquared(this.grads,0));
-                        if (len === 0.0)
-                            continue;
-                        vecScale(this.grads,0, 1.0 / len);
-                        let restLen = this.edgeLengths[i];
-                        let C = len - restLen;
-                        let s = -C / (w + alpha);
-                        vecAdd(this.pos,id0, this.grads,0, s * w0);
-                        vecAdd(this.pos,id1, this.grads,0, -s * w1);
-                    }
-                }
-        
-                solveVolumes(compliance, dt) {
-                    let alpha = compliance / dt /dt;
-        
-                    for (let i = 0; i < this.numTets; i++) {
-                        let w = 0.0;
-        
-                        for (let j = 0; j < 4; j++) {
-                            let id0 = this.tetIds[4 * i + this.volIdOrder[j][0]];
-                            let id1 = this.tetIds[4 * i + this.volIdOrder[j][1]];
-                            let id2 = this.tetIds[4 * i + this.volIdOrder[j][2]];
-        
-                            vecSetDiff(this.temp,0, this.pos,id1, this.pos,id0);
-                            vecSetDiff(this.temp,1, this.pos,id2, this.pos,id0);
-                            vecSetCross(this.grads,j, this.temp,0, this.temp,1);
-                            vecScale(this.grads,j, 1.0/6.0);
-        
-                            w += this.invMass[this.tetIds[4 * i + j]] * vecLengthSquared(this.grads,j);
-                        }
-                        if (w === 0.0)
-                            continue;
-        
-                        let vol = this.getTetVolume(i);
-                        let restVol = this.restVol[i];
-                        let C = vol - restVol;
-                        let s = -C / (w + alpha);
-        
-                        for (let j = 0; j < 4; j++) {
-                            let id = this.tetIds[4 * i + j];
-                            vecAdd(this.pos,id, this.grads,j, s * this.invMass[id])
-                        }
-                    }
-                }
-        
-                endFrame()
-                {
+                endFrame() {
                     this.updateTetMesh();
                     this.updateVisMesh();
                 }
         
-                updateTetMesh()
-                {
+                updateTetMesh() {
                     const positions = this.tetMesh.geometry.attributes.position.array;
                     for (let i = 0; i < this.pos.length; i++)
                         positions[i] = this.pos[i];
@@ -371,8 +307,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.tetMesh.geometry.computeBoundingSphere();
                 }
         
-                updateVisMesh()
-                {
+                updateVisMesh() {
                     const positions = this.visMesh.geometry.attributes.position.array;
                     let nr = 0;
                     for (let i = 0; i < this.numVisVerts; i++) {
@@ -407,8 +342,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.endFrame();
                 }
         
-                startGrab(pos)
-                {
+                startGrab(pos) {
                     let p = [pos.x, pos.y, pos.z];
                     let minD2 = Number.MAX_VALUE;
                     this.grabId = -1;
@@ -427,16 +361,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     }
                 }
         
-                moveGrabbed(pos, vel)
-                {
+                moveGrabbed(pos, vel) {
                     if (this.grabId >= 0) {
                         let p = [pos.x, pos.y, pos.z];
                         vecCopy(this.pos,this.grabId, p,0);
                     }
                 }
         
-                endGrab(pos, vel)
-                {
+                endGrab(pos, vel) {
                     if (this.grabId >= 0) {
                         this.invMass[this.grabId] = this.grabInvMass;
                         let v = [vel.x, vel.y, vel.z];
@@ -445,36 +377,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.grabId = -1;
                 }
             }
-        
-            // ------------------------------------------------------------------
-            function initPhysics()
-            {
+            
+            function initPhysics() {
                 let body = new SoftBody(dragonTetMesh, dragonVisMesh, gThreeScene);
                 gPhysicsScene.objects.push(body);
                 document.getElementById("numTets").innerHTML = body.numTets;
                 document.getElementById("numTris").innerHTML = (dragonVisMesh.triIds.length / 3).toString();
                 document.getElementById("numVerts").innerHTML = (dragonVisMesh.verts.length / 3).toString();
             }
-        
-            // ------------------------------------------------------------------
-            function simulate()
-            {
+            
+            function simulate() {
                 if (gPhysicsScene.paused)
                     return;
         
                 let sdt = gPhysicsScene.dt / gPhysicsScene.numSubsteps;
-        
+
                 for (let step = 0; step < gPhysicsScene.numSubsteps; step++) {
-        
                     for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                        gPhysicsScene.objects[i].preSolve(sdt, gPhysicsScene.gravity);
-        
-                    for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                        gPhysicsScene.objects[i].solve(sdt);
-        
-                    for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                        gPhysicsScene.objects[i].postSolve(sdt);
-        
+                        gPhysicsScene.objects[i].simulate(sdt, gPhysicsScene.gravity);
                 }
                 
                 for (let i = 0; i < gPhysicsScene.objects.length; i++)
@@ -482,15 +402,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         
                 gGrabber.increaseTime(gPhysicsScene.dt);
             }
-        
-            // ------------------------------------------
-        
-            function initThreeScene()
-            {
+            
+            function initThreeScene() {
                 gThreeScene = new THREE.Scene();
         
                 // Lights
-        
                 gThreeScene.add( new THREE.AmbientLight( 0x505050 ) );
                 gThreeScene.fog = new THREE.Fog( 0x000000, 0, 15 );
         
@@ -521,7 +437,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 gThreeScene.add( dirLight );
         
                 // Geometry
-        
                 let ground = new THREE.Mesh(
                     new THREE.PlaneBufferGeometry( 20, 20, 1, 1 ),
                     new THREE.MeshPhongMaterial( { color: 0xa0adaf, shininess: 150 } )
@@ -538,7 +453,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 gThreeScene.add( helper );
         
                 // Renderer
-        
                 gRenderer = new THREE.WebGLRenderer();
                 gRenderer.shadowMap.enabled = true;
                 gRenderer.setPixelRatio( window.devicePixelRatio );
@@ -547,8 +461,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 container.appendChild( gRenderer.domElement );
         
                 // Camera
-        
-                gCamera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100);
+                gCamera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100 );
                 gCamera.position.set(0, 1, 4);
                 gCamera.updateMatrixWorld();
         
@@ -559,104 +472,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 gCameraControl.panSpeed = 0.4;
         
                 // grabber
-        
-                gGrabber = new Grabber();
-                container.addEventListener( 'pointerdown', onPointer, false );
-                container.addEventListener( 'pointermove', onPointer, false );
-                container.addEventListener( 'pointerup', onPointer, false );
-            }
-        
-            // ------- grabber -----------------------------------------------------------
-        
-            class Grabber {
-                constructor() {
-                    this.raycaster = new THREE.Raycaster();
-                    this.raycaster.layers.set(1);
-                    this.raycaster.params.Line.threshold = 0.1;
-                    this.physicsObject = null;
-                    this.distance = 0.0;
-                    this.prevPos = new THREE.Vector3();
-                    this.vel = new THREE.Vector3();
-                    this.time = 0.0;
-                }
-                increaseTime(dt) {
-                    this.time += dt;
-                }
-                updateRaycaster(x, y) {
-                    let rect = gRenderer.domElement.getBoundingClientRect();
-                    this.mousePos = new THREE.Vector2();
-                    this.mousePos.x = ((x - rect.left) / rect.width ) * 2 - 1;
-                    this.mousePos.y = -((y - rect.top) / rect.height ) * 2 + 1;
-                    this.raycaster.setFromCamera( this.mousePos, gCamera );
-                }
-                start(x, y) {
-                    this.physicsObject = null;
-                    this.updateRaycaster(x, y);
-                    let intersects = this.raycaster.intersectObjects( gThreeScene.children );
-                    if (intersects.length > 0) {
-                        let obj = intersects[0].object.userData;
-                        if (obj) {
-                            this.physicsObject = obj;
-                            this.distance = intersects[0].distance;
-                            let pos = this.raycaster.ray.origin.clone();
-                            pos.addScaledVector(this.raycaster.ray.direction, this.distance);
-                            this.physicsObject.startGrab(pos);
-                            this.prevPos.copy(pos);
-                            this.vel.set(0.0, 0.0, 0.0);
-                            this.time = 0.0;
-                            if (gPhysicsScene.paused)
-                                run();
-                        }
-                    }
-                }
-                move(x, y) {
-                    if (this.physicsObject) {
-                        this.updateRaycaster(x, y);
-                        let pos = this.raycaster.ray.origin.clone();
-                        pos.addScaledVector(this.raycaster.ray.direction, this.distance);
-        
-                        this.vel.copy(pos);
-                        this.vel.sub(this.prevPos);
-                        if (this.time > 0.0)
-                            this.vel.divideScalar(this.time);
-                        else
-                            this.vel.set(0.0, 0.0, 0.0);
-                        this.prevPos.copy(pos);
-                        this.time = 0.0;
-        
-                        this.physicsObject.moveGrabbed(pos, this.vel);
-                    }
-                }
-                end(x, y) {
-                    if (this.physicsObject) {
-                        this.physicsObject.endGrab(this.prevPos, this.vel);
-                        this.physicsObject = null;
-                    }
-                }
-            }
-        
-            function onPointer( evt )
-            {
-                event.preventDefault();
-                if (evt.type === "pointerdown") {
-                    gGrabber.start(evt.clientX, evt.clientY);
-                    gMouseDown = true;
-                    if (gGrabber.physicsObject) {
-                        gCameraControl.saveState();
-                        gCameraControl.enabled = false;
-                    }
-                }
-                else if (evt.type === "pointermove" && gMouseDown) {
-                    gGrabber.move(evt.clientX, evt.clientY);
-                }
-                else if (evt.type === "pointerup") {
-                    if (gGrabber.physicsObject) {
-                        gGrabber.end();
-                        gCameraControl.reset();
-                    }
-                    gMouseDown = false;
-                    gCameraControl.enabled = true;
-                }
+                gGrabber = new Grabber(gThreeScene, gRenderer, gCamera, gCameraControl, gPhysicsScene, container, SoftBody.Layer);
             }
         
             document.getElementById("complianceSlider").oninput = function() {
@@ -664,10 +480,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     gPhysicsScene.objects[i].edgeCompliance = this.value * 10.0;
             }
         
-            // ------------------------------------------------------
-        
             function onWindowResize() {
-        
                 gCamera.aspect = window.innerWidth / window.innerHeight;
                 gCamera.updateProjectionMatrix();
                 gRenderer.setSize( window.innerWidth, window.innerHeight );
@@ -692,8 +505,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 if (!gPhysicsScene.paused)
                     run();
             }
-        
-            // make browser to call us repeatedly -----------------------------------
+
+            function onShowTets() {
+                gPhysicsScene.showTetMesh = !gPhysicsScene.showTetMesh;
+                for (let i = 0; i < gPhysicsScene.objects.length; i++)
+                    gPhysicsScene.objects[i].tetMesh.visible = gPhysicsScene.showTetMesh;
+            }
         
             function update() {
                 simulate();

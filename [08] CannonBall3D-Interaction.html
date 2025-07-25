@@ -22,6 +22,8 @@
         <!-- Ref three library for 3d -->
         <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
         <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
+        
+        <script src="Algorithms/Grabber.js"></script>
     
         <script>
             let gThreeScene;
@@ -41,6 +43,8 @@
             }
         
             class Ball {
+                static Layer = 1;
+                
                 constructor(pos, radius, vel, scene) {
                     // physics data
                     this.pos = pos;
@@ -56,7 +60,7 @@
 
                     // for ray casting
                     this.visMesh.userData = this;
-                    this.visMesh.layers.enable(BallLayer);
+                    this.visMesh.layers.enable(Ball.Layer);
                     
                     gThreeScene.add( this.visMesh );
                 }
@@ -198,111 +202,7 @@
                 gCameraControl.panSpeed = 0.4;
         
                 // Grabber
-                gGrabber = new Grabber();
-                container.addEventListener('pointerdown', onPointer, false);
-                container.addEventListener('pointermove', onPointer, false);
-                container.addEventListener('pointerup', onPointer, false);
-            }
-            
-            class Grabber {
-                constructor() {
-                    this.raycaster = new THREE.Raycaster();
-                    this.raycaster.layers.set(BallLayer);
-                    this.raycaster.params.Line.threshold = 0.1;
-                    this.physicsObject = null;
-                    this.distance = 0.0;
-                    this.prevPos = new THREE.Vector3();
-                    this.vel = new THREE.Vector3();
-                    this.time = 0.0;            
-                }
-                increaseTime(dt) {
-                    this.time += dt;
-                }
-                updateRaycaster(x, y) {
-                    let rect = gRenderer.domElement.getBoundingClientRect();
-                    
-                    const screenPos = new THREE.Vector2();
-                    screenPos.x = x - rect.left;
-                    screenPos.x = y - rect.top;
-                    
-                    this.mousePos = new THREE.Vector2();
-                    // Map coordinate from screen to NDC(Normalize Device Coordinate, [-1, 1])
-                    // Screen y coordinate is from top to down, opposite to NDC y coordinate
-                    this.mousePos.x =  (screenPos.x / rect.width ) * 2 - 1;
-                    this.mousePos.y = -(screenPos.y / rect.height ) * 2 + 1;
-                    
-                    this.raycaster.setFromCamera( this.mousePos, gCamera );
-                }
-                start(x, y) {
-                    this.physicsObject = null;
-                    this.updateRaycaster(x, y);
-                    let intersects = this.raycaster.intersectObjects( gThreeScene.children );
-                    if (intersects.length > 0) {
-                        let obj = intersects[0].object.userData;
-                        if (obj) {
-                            this.physicsObject = obj;
-                            this.distance = intersects[0].distance;
-                            
-                            let pos = this.raycaster.ray.origin.clone();
-                            pos.addScaledVector(this.raycaster.ray.direction, this.distance);
-                            this.physicsObject.startGrab(pos);
-                            this.prevPos.copy(pos);
-                            
-                            this.vel.set(0.0, 0.0, 0.0);
-                            this.time = 0.0;
-                            if (gPhysicsScene.paused)
-                                run();
-                        }
-                    }
-                }
-                move(x, y) {
-                    if (this.physicsObject) {
-                        this.updateRaycaster(x, y);
-                        let pos = this.raycaster.ray.origin.clone();
-                        pos.addScaledVector(this.raycaster.ray.direction, this.distance);
-        
-                        this.vel.copy(pos);
-                        this.vel.sub(this.prevPos);
-                        if (this.time > 0.0)
-                            this.vel.divideScalar(this.time);
-                        else
-                            this.vel.set(0.0, 0.0, 0.0);
-                        this.prevPos.copy(pos);
-                        this.time = 0.0;
-        
-                        this.physicsObject.moveGrabbed(pos, this.vel);
-                    }
-                }
-                end(x, y) {
-                    if (this.physicsObject) {
-                        this.physicsObject.endGrab(this.prevPos, this.vel);
-                        this.physicsObject = null;
-                    }
-                }
-            }
-        
-            function onPointer( evt )
-            {
-                event.preventDefault();
-                if (evt.type === "pointerdown") {
-                    gGrabber.start(evt.clientX, evt.clientY);
-                    gMouseDown = true;
-                    if (gGrabber.physicsObject) {
-                        gCameraControl.saveState();
-                        gCameraControl.enabled = false;
-                    }
-                }
-                else if (evt.type === "pointermove" && gMouseDown) {
-                    gGrabber.move(evt.clientX, evt.clientY);
-                }
-                else if (evt.type === "pointerup") {
-                    if (gGrabber.physicsObject) {
-                        gGrabber.end();
-                        gCameraControl.reset();
-                    }
-                    gMouseDown = false;
-                    gCameraControl.enabled = true;
-                }
+                gGrabber = new Grabber(gThreeScene, gRenderer, gCamera, gCameraControl, gPhysicsScene, container, Ball.Layer);
             }
             
             function onWindowResize() {
