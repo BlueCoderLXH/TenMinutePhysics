@@ -45,15 +45,86 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
         <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
 
-        <script src="[10] MathMethods.js"></script>
-        <script src="[11] DenseHash.js"></script>
+        <script src="Algorithms/MathMethods.js"></script>
+        <script src="Algorithms/DenseHash.js"></script>
+        <script src="Framework/PhysicsWorld.js"></script>
     
         <script>
-        
-            let threeScene;
-            let renderer;
-            let camera;
-            let cameraControl;
+            let physicsScene = {
+                gravity : [0.0, 0.0, 0.0],
+                dt : 1.0 / 60.0,
+                worldBounds :  [-1.0, 0.0, -1.0, 1.0, 2.0, 1.0],
+                paused: true,
+                balls: null,
+            };
+            
+            class HashWorld extends PhysicsWorldBase {
+                constructor(physicsScene, container, bWithGrabber) {
+                    super(physicsScene, container, bWithGrabber);
+
+                    this.timeFrames = 0;
+                    this.timeSum = 0;                    
+                }
+                
+                initPhysics() {
+                    let radius = 0.025;
+
+                    let spacing = 3.0 * radius;
+                    let velRand = 0.2;
+
+                    let s = physicsScene.worldBounds;
+
+                    let numX = Math.floor((s[3] - s[0] - 2.0 * spacing) / spacing);
+                    let numY = Math.floor((s[4] - s[1] - 2.0 * spacing) / spacing);
+                    let numZ = Math.floor((s[5] - s[2] - 2.0 * spacing) / spacing);
+
+                    let pos = new Float32Array(3 * numX * numY * numZ);
+                    let vel = new Float32Array(3 * numX * numY * numZ);
+                    vel.fill(0.0);
+
+                    for (let xi = 0; xi < numX; xi++) {
+                        for (let yi = 0; yi < numY; yi++) {
+                            for (let zi = 0; zi < numZ; zi++) {
+                                let x = 3 * ((xi * numY + yi) * numZ + zi);
+                                let y = x + 1;
+                                let z = x + 2;
+                                pos[x] = s[0] + spacing + xi * spacing;
+                                pos[y] = s[1] + spacing + yi * spacing;
+                                pos[z] = s[2] + spacing + zi * spacing;
+
+                                vel[x] = -velRand + 2.0 * velRand * Math.random();
+                                vel[y] = -velRand + 2.0 * velRand * Math.random();
+                                vel[z] = -velRand + 2.0 * velRand * Math.random();
+                            }
+                        }
+                    }
+
+                    physicsScene.balls = new Balls(radius, pos, vel, this.ThreeScene);
+
+                    document.getElementById("particleCount").innerHTML = (pos.length / 3).toString();
+                }
+                
+                simulate() {
+                    if (physicsScene.paused)
+                        return;
+
+                    let startTime = performance.now();
+
+                    physicsScene.balls.simulate(physicsScene.dt,
+                        physicsScene.gravity, physicsScene.worldBounds);
+
+                    let endTime = performance.now();
+                    this.timeSum += endTime - startTime;
+                    this.timeFrames++;
+
+                    if (this.timeFrames > 10) {
+                        this.timeSum /= this.timeFrames;
+                        document.getElementById("ms").innerHTML = this.timeSum.toFixed(3);
+                        this.timeFrames = 0;
+                        this.timeSum = 0;
+                    }
+                }
+            }
             
             class Balls {
                 constructor(radius, pos, vel, scene)
@@ -87,8 +158,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.visMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3, false, 1);
                     for (let i = 0; i < this.numBalls; i++)
                         this.visMesh.setColorAt(i, this.ballColor);
-        
-                    threeScene.add(this.visMesh);
+
+                    scene.add(this.visMesh);
         
                     this.updateMesh();
                 }
@@ -181,189 +252,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.updateMesh();
                 }
             }
-            
-            let physicsScene = {
-                gravity : [0.0, 0.0, 0.0],
-                dt : 1.0 / 60.0,
-                worldBounds :  [-1.0, 0.0, -1.0, 1.0, 2.0, 1.0],
-                paused: true,
-                balls: null,
-            };
-
-            function initPhysics(scene)
-            {
-                let radius = 0.025;
-        
-                let spacing = 3.0 * radius;
-                let velRand = 0.2;
-        
-                let s = physicsScene.worldBounds;
-        
-                let numX = Math.floor((s[3] - s[0] - 2.0 * spacing) / spacing);
-                let numY = Math.floor((s[4] - s[1] - 2.0 * spacing) / spacing);
-                let numZ = Math.floor((s[5] - s[2] - 2.0 * spacing) / spacing);
-        
-                let pos = new Float32Array(3 * numX * numY * numZ);
-                let vel = new Float32Array(3 * numX * numY * numZ);
-                vel.fill(0.0);
-        
-                for (let xi = 0; xi < numX; xi++) {
-                    for (let yi = 0; yi < numY; yi++) {
-                        for (let zi = 0; zi < numZ; zi++) {
-                            let x = 3 * ((xi * numY + yi) * numZ + zi);
-                            let y = x + 1;
-                            let z = x + 2;
-                            pos[x] = s[0] + spacing + xi * spacing;
-                            pos[y] = s[1] + spacing + yi * spacing;
-                            pos[z] = s[2] + spacing + zi * spacing;
-        
-                            vel[x] = -velRand + 2.0 * velRand * Math.random();
-                            vel[y] = -velRand + 2.0 * velRand * Math.random();
-                            vel[z] = -velRand + 2.0 * velRand * Math.random();
-                        }
-                    }
-                }
-        
-                physicsScene.balls = new Balls(radius, pos, vel, threeScene);
-        
-                document.getElementById("particleCount").innerHTML = (pos.length / 3).toString();
-            }
-            
-            function initThreeScene()
-            {
-                threeScene = new THREE.Scene();
-        
-                // Lights
-        
-                threeScene.add( new THREE.AmbientLight( 0x505050 ) );
-                threeScene.fog = new THREE.Fog( 0x000000, 0, 15 );
-        
-                let spotLight = new THREE.SpotLight( 0xffffff );
-                spotLight.angle = Math.PI / 5;
-                spotLight.penumbra = 0.2;
-                spotLight.position.set( 2, 3, 3 );
-                spotLight.castShadow = true;
-                spotLight.shadow.camera.near = 3;
-                spotLight.shadow.camera.far = 10;
-                spotLight.shadow.mapSize.width = 1024;
-                spotLight.shadow.mapSize.height = 1024;
-                threeScene.add( spotLight );
-        
-                let dirLight = new THREE.DirectionalLight( 0x55505a, 1 );
-                dirLight.position.set( 0, 3, 0 );
-                dirLight.castShadow = true;
-                dirLight.shadow.camera.near = 1;
-                dirLight.shadow.camera.far = 10;
-        
-                dirLight.shadow.camera.right = 1;
-                dirLight.shadow.camera.left = - 1;
-                dirLight.shadow.camera.top	= 1;
-                dirLight.shadow.camera.bottom = - 1;
-        
-                dirLight.shadow.mapSize.width = 1024;
-                dirLight.shadow.mapSize.height = 1024;
-                threeScene.add( dirLight );
-        
-                // Geometry
-        
-                let ground = new THREE.Mesh(
-                    new THREE.PlaneBufferGeometry( 20, 20, 1, 1 ),
-                    new THREE.MeshPhongMaterial( { color: 0xa0adaf, shininess: 150 } )
-                );
-        
-                ground.rotation.x = - Math.PI / 2; // rotates X/Y to X/Z
-                ground.receiveShadow = true;
-                threeScene.add( ground );
-        
-                let helper = new THREE.GridHelper( 20, 20 );
-                helper.material.opacity = 1.0;
-                helper.material.transparent = true;
-                helper.position.set(0, 0.002, 0);
-                threeScene.add( helper );
-        
-                // Renderer
-        
-                renderer = new THREE.WebGLRenderer();
-                renderer.shadowMap.enabled = true;
-                renderer.setPixelRatio( window.devicePixelRatio );
-                renderer.setSize( 0.8 * window.innerWidth, 0.8 * window.innerHeight );
-                window.addEventListener( 'resize', onWindowResize, false );
-                container.appendChild( renderer.domElement );
-        
-                // Camera
-        
-                camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100);
-                camera.position.set(0, 2, 4);
-                camera.updateMatrixWorld();
-        
-                threeScene.add( camera );
-        
-                cameraControl = new THREE.OrbitControls(camera, renderer.domElement);
-                cameraControl.zoomSpeed = 2.0;
-                cameraControl.panSpeed = 0.4;
-            }
-        
-            function onWindowResize() {
-        
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize( window.innerWidth, window.innerHeight );
-            }
         
             function run() {
-                let button = document.getElementById('buttonRun');
-                if (physicsScene.paused)
-                    button.innerHTML = "Stop";
-                else
-                    button.innerHTML = "Run";
-                physicsScene.paused = !physicsScene.paused;
+                gWorld.run();
             }
         
             function restart() {
-                location.reload();
+                gWorld.restart();
             }
 
             function onShowColl() {
                 if (physicsScene.balls)
                     physicsScene.balls.showCollisions = !physicsScene.balls.showCollisions;
-            }            
-
-            let timeFrames = 0;
-            let timeSum = 0;
-            function simulate()
-            {
-                if (physicsScene.paused)
-                    return;
-
-                let startTime = performance.now();
-
-                physicsScene.balls.simulate(physicsScene.dt,
-                    physicsScene.gravity, physicsScene.worldBounds);
-
-                let endTime = performance.now();
-                timeSum += endTime - startTime;
-                timeFrames++;
-
-                if (timeFrames > 10) {
-                    timeSum /= timeFrames;
-                    document.getElementById("ms").innerHTML = timeSum.toFixed(3);
-                    timeFrames = 0;
-                    timeSum = 0;
-                }
-            }            
-            
-            function update() {
-                simulate();
-                renderer.render(threeScene, camera);
-                cameraControl.update();
-        
-                requestAnimationFrame(update);
             }
-        
-            initThreeScene();
-            onWindowResize();
-            initPhysics();
-            update();
+            
+            registerWorld(new HashWorld(physicsScene, container, false));
         
         </script>
     </body>

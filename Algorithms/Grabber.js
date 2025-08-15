@@ -1,8 +1,6 @@
 ﻿// ------- grabber -----------------------------------------------------------
 class Grabber {
-    static singleTon = null;
-    
-    constructor(threeScene, renderer, camera, cameraCtl, physicsScene, container, targetLayer) {
+    constructor(threeScene, renderer, camera, cameraCtl, physicsScene, container, targetLayer = 0) {
         this.threeScene = threeScene;
         this.renderer = renderer;
         this.camera = camera;
@@ -19,12 +17,15 @@ class Grabber {
         this.prevPos = new THREE.Vector3();
         this.vel = new THREE.Vector3();
         this.time = 0.0;
+        
+        this.handleOnPointer = this.onPointer.bind(this);
+        container.addEventListener( 'pointerdown', this.handleOnPointer, false );
+        container.addEventListener( 'pointermove', this.handleOnPointer, false );
+        container.addEventListener( 'pointerup', this.handleOnPointer, false );
+    }
 
-        Grabber.singleTon = this;
-
-        container.addEventListener( 'pointerdown', onPointer, false );
-        container.addEventListener( 'pointermove', onPointer, false );
-        container.addEventListener( 'pointerup', onPointer, false );        
+    setTargetLayer(targetLayer) {
+        this.raycaster.layers.set(targetLayer);
     }
     
     increaseTime(dt) {
@@ -41,7 +42,7 @@ class Grabber {
         this.mousePos = new THREE.Vector2();
         // Map coordinate from screen to NDC(Normalize Device Coordinate, [-1, 1])
         // Screen y coordinate is from top to down, opposite to NDC y coordinate
-        this.mousePos.x =  (screenPos.x / rect.width ) * 2 - 1;
+        this.mousePos.x =  (screenPos.x / rect.width  ) * 2 - 1;
         this.mousePos.y = -(screenPos.y / rect.height ) * 2 + 1;
 
         this.raycaster.setFromCamera( this.mousePos, this.camera );
@@ -93,31 +94,41 @@ class Grabber {
             this.physicsObject = null;
         }
     }
-}
-
-function onPointer( evt ) {
-    let grabber = Grabber.singleTon;
     
-    event.preventDefault();
-    if (evt.type === "pointerdown") {
-        grabber.start(evt.clientX, evt.clientY);
-        grabber.mouseDown = true;
-        
-        if (grabber.physicsObject) {
-            grabber.cameraCtl.saveState();
-            grabber.cameraCtl.enabled = false;
-        }
+    onPointerDown(evt) {
+        this.start(evt.clientX, evt.clientY);
+        this.mouseDown = true;
+
+        if (this.physicsObject) {
+            this.cameraCtl.saveState();
+            this.cameraCtl.enabled = false;
+        }        
     }
-    else if (evt.type === "pointermove" && grabber.mouseDown) {
-        grabber.move(evt.clientX, evt.clientY);
+
+    onPointerMove(evt) {
+        this.move(evt.clientX, evt.clientY);
     }
-    else if (evt.type === "pointerup") {
-        if (grabber.physicsObject) {
-            grabber.end();
-            grabber.cameraCtl.reset();
+
+    onPointerUp(evt) {
+        if (this.physicsObject) {
+            this.end();
+            this.cameraCtl.reset();
         }
-        
-        grabber.mouseDown = false;
-        grabber.cameraCtl.enabled = true;
+
+        this.mouseDown = false;
+        this.cameraCtl.enabled = true;        
+    }
+
+    onPointer( evt ) {
+        event.preventDefault();
+        if (evt.type === "pointerdown") {
+            this.onPointerDown(evt);
+        }
+        else if (evt.type === "pointermove" && this.mouseDown) {
+            this.onPointerMove(evt);
+        }
+        else if (evt.type === "pointerup") {
+            this.onPointerUp(evt);
+        }
     }
 }

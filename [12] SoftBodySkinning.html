@@ -60,15 +60,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <script src="Algorithms/DenseHash.js"></script>
         <script src="Algorithms/Grabber.js"></script>
         <script src="Physics/Constraints.js"></script>
+        <script src="Framework/PhysicsWorld.js"></script>
         <script src="GeometryData/[12] SoftBodySkinningData.js"></script>
     
         <script>
-            let gThreeScene;
-            let gRenderer;
-            let gCamera;
-            let gCameraControl;
-            let gGrabber;
-            
             let gPhysicsScene = {
                     gravity : [0.0, -10.0, 0.0],
                     dt : 1.0 / 60.0,
@@ -78,7 +73,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     objects: [],
             };
         
-            // ------------------------------------------------------------------
+            class SoftBodyWorld extends PhysicsWorldBase {
+                initPhysics() {
+                    let body = new SoftBody(dragonTetMesh, dragonVisMesh, this.ThreeScene);
+                    this.setTargetLayer(SoftBody.Layer);
+                    this.PhysicsScene.objects.push(body);
+                }
+                
+                initUI() {
+                    document.getElementById("numTets").innerHTML = body.numTets;
+                    document.getElementById("numTris").innerHTML = (dragonVisMesh.triIds.length / 3).toString();
+                    document.getElementById("numVerts").innerHTML = (dragonVisMesh.verts.length / 3).toString();                    
+                }
+
+                run() {
+                    let button = document.getElementById('buttonRun');
+                    if (this.PhysicsScene.paused)
+                        button.innerHTML = "Stop";
+                    else
+                        button.innerHTML = "Run";
+                    this.PhysicsScene.paused = !this.PhysicsScene.paused;                    
+                }
+            }
+            
             class SoftBody {
                 static Layer = 1;
                 
@@ -377,152 +394,30 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.grabId = -1;
                 }
             }
-            
-            function initPhysics() {
-                let body = new SoftBody(dragonTetMesh, dragonVisMesh, gThreeScene);
-                gPhysicsScene.objects.push(body);
-                document.getElementById("numTets").innerHTML = body.numTets;
-                document.getElementById("numTris").innerHTML = (dragonVisMesh.triIds.length / 3).toString();
-                document.getElementById("numVerts").innerHTML = (dragonVisMesh.verts.length / 3).toString();
-            }
-            
-            function simulate() {
-                if (gPhysicsScene.paused)
-                    return;
-        
-                let sdt = gPhysicsScene.dt / gPhysicsScene.numSubsteps;
-
-                for (let step = 0; step < gPhysicsScene.numSubsteps; step++) {
-                    for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                        gPhysicsScene.objects[i].simulate(sdt, gPhysicsScene.gravity);
-                }
-                
-                for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                    gPhysicsScene.objects[i].endFrame();
-        
-                gGrabber.increaseTime(gPhysicsScene.dt);
-            }
-            
-            function initThreeScene() {
-                gThreeScene = new THREE.Scene();
-        
-                // Lights
-                gThreeScene.add( new THREE.AmbientLight( 0x505050 ) );
-                gThreeScene.fog = new THREE.Fog( 0x000000, 0, 15 );
-        
-                let spotLight = new THREE.SpotLight( 0xffffff, 1 );
-                spotLight.angle = Math.PI / 5;
-                spotLight.penumbra = 0.2;
-                spotLight.position.set( 2, 3, 3 );
-                spotLight.castShadow = true;
-                spotLight.shadow.camera.near = 3;
-                spotLight.shadow.camera.far = 10;
-                spotLight.shadow.mapSize.width = 1024;
-                spotLight.shadow.mapSize.height = 1024;
-                gThreeScene.add( spotLight );
-        
-                let dirLight = new THREE.DirectionalLight( 0x55505a, 1 );
-                dirLight.position.set( 0, 3, 0 );
-                dirLight.castShadow = true;
-                dirLight.shadow.camera.near = 1;
-                dirLight.shadow.camera.far = 10;
-        
-                dirLight.shadow.camera.right = 1;
-                dirLight.shadow.camera.left = - 1;
-                dirLight.shadow.camera.top	= 1;
-                dirLight.shadow.camera.bottom = - 1;
-        
-                dirLight.shadow.mapSize.width = 1024;
-                dirLight.shadow.mapSize.height = 1024;
-                gThreeScene.add( dirLight );
-        
-                // Geometry
-                let ground = new THREE.Mesh(
-                    new THREE.PlaneBufferGeometry( 20, 20, 1, 1 ),
-                    new THREE.MeshPhongMaterial( { color: 0xa0adaf, shininess: 150 } )
-                );
-        
-                ground.rotation.x = - Math.PI / 2; // rotates X/Y to X/Z
-                ground.receiveShadow = true;
-                gThreeScene.add( ground );
-        
-                let helper = new THREE.GridHelper( 20, 20 );
-                helper.material.opacity = 1.0;
-                helper.material.transparent = true;
-                helper.position.set(0, 0.002, 0);
-                gThreeScene.add( helper );
-        
-                // Renderer
-                gRenderer = new THREE.WebGLRenderer();
-                gRenderer.shadowMap.enabled = true;
-                gRenderer.setPixelRatio( window.devicePixelRatio );
-                gRenderer.setSize( 0.8 * window.innerWidth, 0.8 * window.innerHeight );
-                window.addEventListener( 'resize', onWindowResize, false );
-                container.appendChild( gRenderer.domElement );
-        
-                // Camera
-                gCamera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 100 );
-                gCamera.position.set(0, 1, 4);
-                gCamera.updateMatrixWorld();
-        
-                gThreeScene.add(gCamera);
-        
-                gCameraControl = new THREE.OrbitControls(gCamera, gRenderer.domElement);
-                gCameraControl.zoomSpeed = 2.0;
-                gCameraControl.panSpeed = 0.4;
-        
-                // grabber
-                gGrabber = new Grabber(gThreeScene, gRenderer, gCamera, gCameraControl, gPhysicsScene, container, SoftBody.Layer);
-            }
         
             document.getElementById("complianceSlider").oninput = function() {
                 for (let i = 0; i < gPhysicsScene.objects.length; i++)
                     gPhysicsScene.objects[i].edgeCompliance = this.value * 10.0;
             }
         
-            function onWindowResize() {
-                gCamera.aspect = window.innerWidth / window.innerHeight;
-                gCamera.updateProjectionMatrix();
-                gRenderer.setSize( window.innerWidth, window.innerHeight );
-            }
-        
             function run() {
-                let button = document.getElementById('buttonRun');
-                if (gPhysicsScene.paused)
-                    button.innerHTML = "Stop";
-                else
-                    button.innerHTML = "Run";
-                gPhysicsScene.paused = !gPhysicsScene.paused;
+                gWorld.run();
             }
         
             function restart() {
-                location.reload();
+                gWorld.restart();
             }
         
             function squash() {
-                for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                    gPhysicsScene.objects[i].squash();
-                if (!gPhysicsScene.paused)
-                    run();
+                gWorld.squash();
             }
 
             function onShowTets() {
-                gPhysicsScene.showTetMesh = !gPhysicsScene.showTetMesh;
-                for (let i = 0; i < gPhysicsScene.objects.length; i++)
-                    gPhysicsScene.objects[i].tetMesh.visible = gPhysicsScene.showTetMesh;
+                gWorld.onShowTets();
             }
-        
-            function update() {
-                simulate();
-                gRenderer.render(gThreeScene, gCamera);
-                requestAnimationFrame(update);
-            }
-        
-            initThreeScene();
-            onWindowResize();
-            initPhysics();
-            update();
-        
+
+            registerWorld(new SoftBodyWorld(gPhysicsScene, container, true));
+            
         </script>
     </body>
 </html>
