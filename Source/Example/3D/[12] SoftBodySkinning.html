@@ -87,15 +87,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     document.getElementById("numTris").innerHTML = (dragonVisMesh.triIds.length / 3).toString();
                     document.getElementById("numVerts").innerHTML = (dragonVisMesh.verts.length / 3).toString();                    
                 }
-
-                run() {
-                    let button = document.getElementById('buttonRun');
-                    if (this.PhysicsScene.paused)
-                        button.innerHTML = "Stop";
-                    else
-                        button.innerHTML = "Run";
-                    this.PhysicsScene.paused = !this.PhysicsScene.paused;                    
-                }
             }
             
             class SoftBody {
