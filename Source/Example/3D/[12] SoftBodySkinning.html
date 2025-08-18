@@ -61,6 +61,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <script src="../../../Engine/Algorithms/Grabber.js"></script>
         <script src="../../../Engine/Physics/Constraints.js"></script>
         <script src="../../../Engine/Framework/PhysicsWorld.js"></script>
+        <script src="../../../Engine/Framework/PhysicsObject.js"></script>
         <script src="../../GeometryData/[12] SoftBodySkinningData.js"></script>
     
         <script>
@@ -89,10 +90,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 }
             }
             
-            class SoftBody {
+            class SoftBody extends PhysicsObjectGrabable {
                 static Layer = 1;
                 
                 constructor(tetMesh, visMesh, scene, edgeCompliance = 0.0, volCompliance = 0.0) {
+                    super();
+                    
                     // physics
                     this.numParticles = tetMesh.verts.length / 3;
                     this.numTets = tetMesh.tetIds.length / 4;
@@ -110,9 +113,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.volCompliance = volCompliance;
                     
                     this.grads = new Float32Array(4 * 3);
-        
-                    this.grabId = -1;
-                    this.grabInvMass = 0.0;
         
                     this.initPhysics();
         
@@ -251,13 +251,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     }
                 }
 
-                // XPBD simulation
-                simulate(dt, gravity) {
-                    this.preSolve(dt, gravity);
-                    this.solve(dt);
-                    this.postSolve(dt);
-                }                
-        
                 preSolve(dt, gravity) {
                     for (let i = 0; i < this.numParticles; i++) {
                         // don't need to move for one's mass is infinite
@@ -350,41 +343,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                         this.pos[3 * i + 1] = 0.5;
                     }
                     this.endFrame();
-                }
-        
-                startGrab(pos) {
-                    let p = [pos.x, pos.y, pos.z];
-                    let minD2 = Number.MAX_VALUE;
-                    this.grabId = -1;
-                    for (let i = 0; i < this.numParticles; i++) {
-                        let d2 = vecDistSquared(p,0, this.pos,i);
-                        if (d2 < minD2) {
-                            minD2 = d2;
-                            this.grabId = i;
-                        }
-                    }
-        
-                    if (this.grabId >= 0) {
-                        this.grabInvMass = this.invMass[this.grabId];
-                        this.invMass[this.grabId] = 0.0;
-                        vecCopy(this.pos,this.grabId, p,0);
-                    }
-                }
-        
-                moveGrabbed(pos, vel) {
-                    if (this.grabId >= 0) {
-                        let p = [pos.x, pos.y, pos.z];
-                        vecCopy(this.pos,this.grabId, p,0);
-                    }
-                }
-        
-                endGrab(pos, vel) {
-                    if (this.grabId >= 0) {
-                        this.invMass[this.grabId] = this.grabInvMass;
-                        let v = [vel.x, vel.y, vel.z];
-                        vecCopy(this.vel,this.grabId, v,0);
-                    }
-                    this.grabId = -1;
                 }
             }
         
