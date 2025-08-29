@@ -1,0 +1,141 @@
+<!-- Iterative method Jacobi vs Gauss-Seidel -->
+
+<!DOCTYPE html>
+<head>
+    <title>Iterative method Jacobi vs Gauss-Seidel</title>
+</head>
+
+<body>
+<canvas id="myCanvas" style="border:2px solid"></canvas>
+
+<script>
+    let Precision = 1000.0;
+    
+    // Jacobi Iteration
+    function Jacobi(params, n, iterations) {
+        let k = 1;
+        let lastState = Array(n).fill(0.0);
+        let currentState = Array(n).fill(0.0);
+        
+        console.log("Jacobi Iteration:");
+        while (k <= iterations) {
+            currentState.fill(0);
+            
+            for (let i = 0; i < n; i++) {
+                let col1 = 1.0 / params.A[i * n + i];
+                
+                for (let j = 0; j < n; j++) {
+                    if (j === i) continue;
+
+                    let col2 = params.A[i * n + j] * lastState[j];
+                    currentState[i] += -1.0 * col1 * col2;
+                }
+                
+                currentState[i] += col1 * params.B[i];
+                currentState[i] = FixedNumber(currentState[i]);
+            }
+            
+            console.log("[%d] %s", k, currentState.toString().replaceAll(",", ", "));
+
+            lastState = Array.from(currentState);
+            k++;
+        }
+        console.log("\n");
+    }
+    
+    // Gauss-Seidel Iteration
+    function GaussSeidel(params, n, iterations) {
+        let k = 1;
+        let lastState = Array(n).fill(0.0);
+        let currentState = Array(n).fill(0.0);
+
+        console.log("Gauss-Seidel Iteration:");
+        while (k <= iterations) {
+            currentState.fill(0);
+
+            for (let i = 0; i < n; i++) {
+                let col1 = 1.0 / params.A[i * n + i];
+
+                for (let j = 0; j < n; j++) {
+                    if (j === i) continue;
+
+                    let col2 = j < i ? currentState[j] : lastState[j];
+                    let col3 = params.A[i * n + j] * col2;
+                    currentState[i] += -1.0 * col1 * col3;
+                }
+
+                currentState[i] += col1 * params.B[i];
+                currentState[i] = FixedNumber(currentState[i]);
+            }
+
+            console.log("[%d] %s", k, currentState.toString().replaceAll(",", ", "));
+
+            lastState = Array.from(currentState);
+            k++;
+        }        
+    }
+    
+    function FixedNumber(num) {
+        return Math.round(num * Precision) / Precision;
+    }
+    
+    function Test3Equation() {
+        let Params = {
+            A: [
+                 5, -2,  3, // a11, a12, a13
+                -3,  9,  1, // a21, a22, a23
+                 2, -1, -7, // a31, a32, a33
+            ],
+            // A: [
+            //      7, -2,   3, // a11, a12, a13
+            //     -3,  8,   1, // a21, a22, a23
+            //     15, -1, -18, // a31, a32, a33
+            // ],
+            // A: [
+            //      1,  2,  3, // a11, a12, a13
+            //      2,  1,  2, // a21, a22, a23
+            //      3,  2,  1, // a31, a32, a33
+            // ],
+            B: [
+                -1, // b1
+                 2, // b2
+                 3, // b3
+            ]
+        };
+        let Num = 3;
+        let Iterations = 10;
+        
+        console.log("Standard Result:\n0.186, 0.331, -0.423\n\n");
+        Jacobi(Params, Num, Iterations);
+        GaussSeidel(Params, Num, Iterations);        
+    }
+
+    function Test4Equation() {
+        let Params = {
+            A: [
+                 5, -2,  3,  7, // a11, a12, a13, a14
+                -3,  9,  1,  3, // a21, a22, a23, a24
+                 2, -1, -7, -5, // a31, a32, a33, a34
+                -6,  4,  6,  9, // a41, a42, a43, a44
+            ],
+            B: [
+                -1, // b1
+                 2, // b2
+                 3, // b3
+                 4, // b4
+            ]
+        };
+        let Num = 4;
+        let Iterations = 100000;
+
+        console.log("Standard Result:\n-0.723, -0.166, -1.217, 0.847\n\n");
+        Jacobi(Params, Num, Iterations);
+        GaussSeidel(Params, Num, 10);        
+    }
+
+    Test3Equation();
+    // Test4Equation();
+    
+</script>
+
+</body>
