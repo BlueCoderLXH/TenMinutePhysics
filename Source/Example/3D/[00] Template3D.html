@@ -1,0 +1,86 @@
+﻿<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="en">
+    <head>
+        <title>XXX Simulation</title>
+        <style>
+            body {
+                font-family: verdana, serif;
+                font-size: 15px;
+            }
+            .button {
+                background-color: #606060;
+                border: none;
+                color: white;
+                padding: 15px 32px;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    
+    <body>
+        <h1>XXX Simulation</h1>
+        <button id = "buttonRun" onclick="run()" class="button">Run</button>
+        <button onclick="restart()" class="button">Restart</button>
+        <button onclick="squash()" class="button">Squash</button>
+        <button onclick="newBody()" class="button">Bodies++</button>&nbsp;&nbsp;
+        <br><br>
+        <span id = "numTets">0</span> tets&nbsp;&nbsp;
+        Compliance:
+        <label for="complianceSlider"></label><input type = "range" min = "0" max = "10" value = "0" id = "complianceSlider" class = "slider">
+        <br><br>
+        <div id="container"></div>
+        
+        <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
+        
+        <script src="../../../Engine/Algorithms/MathMethods.js"></script>
+        <script src="../../../Engine/Algorithms/Grabber.js"></script>
+        <script src="../../../Engine/Physics/Constraints.js"></script>
+        <script src="../../../Engine/Framework/PhysicsWorld.js"></script>
+        <script src="../../../Engine/Framework/PhysicsObject.js"></script>
+        
+        <script src="../../GeometryData/[xx] XXXData.js"></script>
+        
+        <script>
+            let gPhysicsScene = {
+                gravity : [0.0, -10.0, 0.0],
+                dt : 1.0 / 60.0,
+                numSubsteps : 10,
+                paused: true,
+                objects: [],
+            };
+        
+            class ThreeDWorld extends PhysicsWorldBase {
+                initPhysics() {
+                    let threeDWorld = new ThreeDSimulation(threedData, this.ThreeScene);
+                    this.PhysicsScene.objects.push(threeDWorld);
+                    document.getElementById("numTets").innerHTML = threeDWorld.numTets;                    
+                }
+            }
+        
+            class ThreeDSimulation extends PhysicsObjectGrabable {
+                constructor(clothMesh, scene, edgeCompliance = 100.0) {
+                    super();
+                }
+            }
+        
+            function run() {
+                gWorld.run();
+            }
+        
+            function restart() {
+                gWorld.restart();
+            }
+        
+            function squash() {
+                gWorld.squash();
+            }
+        
+            registerWorld(new ThreeDWorld(gPhysicsScene, container, true));
+        
+        </script>
+    </body>
+</html>

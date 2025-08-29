@@ -1,14 +1,4 @@
-﻿<!--
-Copyright 2021 Matthias Müller - Ten Minute Physics, https://www.youtube.com/channel/UCTG_vrRdKYfrpqCv_WV4eyA
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
--->
-
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <html lang="en">
     <head>
@@ -67,6 +57,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 initPhysics() {
                     let body = new SoftBody(bunnyMesh, this.ThreeScene);
                     this.PhysicsScene.objects.push(body);
+                    this.setTargetLayer(SoftBody.Layer);
+                    
                     document.getElementById("numTets").innerHTML = body.numTets;
                 }
 
@@ -94,7 +86,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     this.numTets = tetMesh.tetIds.length / 4;
                     this.pos = new Float32Array(tetMesh.verts);
                     this.prevPos = tetMesh.verts.slice();
-                    this.vel = new Float32Array(3 * this.numParticles);
+                    this.vel = new Float32Array(3 * this.numParticles); // velocity for vertex on 3d
         
                     this.tetIds = tetMesh.tetIds;
                     this.edgeIds = tetMesh.tetEdgeIds;
@@ -113,7 +105,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     let geometry = new THREE.BufferGeometry();
                     geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
                     geometry.setIndex(tetMesh.tetSurfaceTriIds);
-                    let material = new THREE.MeshPhongMaterial({color: 0xF02000});
+                    let material = new THREE.MeshPhongMaterial({color: 0x87CEEB});
                     material.flatShading = true;
                     this.surfaceMesh = new THREE.Mesh(geometry, material);
                     this.surfaceMesh.geometry.computeVertexNormals();
@@ -141,16 +133,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         
                     // calc inverse mass volume value of tetrahedron
                     for (let i = 0; i < this.numTets; i++) {
-                        // here ρ=1 by default, so that mass equal to volume
+                        // here density ρ=1 by default, so that mass equal to volume
+                        let density = 1;
                         let vol = Constraints.getTetVolume(this.pos, this.tetIds, i);
+                        let mass = vol * density;
                         this.restVol[i] = vol;
-                        let pInvMass = vol > 0.0 ? 1.0 / (vol / 4.0) : 0.0;
+                        let inverseMass = mass > 0.0 ? 1.0 / (mass / 4.0) : 0.0;
                         
-                        // every single point will link multi tetrahedrons, so add inverse mass value
-                        this.invMass[this.tetIds[4 * i]] += pInvMass;
-                        this.invMass[this.tetIds[4 * i + 1]] += pInvMass;
-                        this.invMass[this.tetIds[4 * i + 2]] += pInvMass;
-                        this.invMass[this.tetIds[4 * i + 3]] += pInvMass;
+                        // every single point will link multi tetrahedrons, so add inverse mass value for every point of the tetrahedron 
+                        this.invMass[this.tetIds[4 * i]] += inverseMass;
+                        this.invMass[this.tetIds[4 * i + 1]] += inverseMass;
+                        this.invMass[this.tetIds[4 * i + 2]] += inverseMass;
+                        this.invMass[this.tetIds[4 * i + 3]] += inverseMass;
                     }
                     
                     // calc length of edge
