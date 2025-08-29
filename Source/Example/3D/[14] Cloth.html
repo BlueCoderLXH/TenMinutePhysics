@@ -1,0 +1,304 @@
+﻿<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="en">
+    <head>
+        <title>Cloth Simulation</title>
+        <style>
+            body {
+                font-family: verdana, serif;
+                font-size: 15px;
+            }
+            .button {
+                background-color: #606060;
+                border: none;
+                color: white;
+                padding: 15px 32px;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    
+    <body>
+        <h1>Cloth Simulation</h1>
+        <button id = "buttonRun" onclick="run()" class="button">Run</button>
+        <button onclick="restart()" class="button">Restart</button>
+        <button onclick="newBody()" class="button">Bodies++</button>&nbsp;&nbsp;
+        <br><br>
+        <span id = "numTris">0</span> tris&nbsp;&nbsp;
+        <span id = "numVerts">0</span> verts&nbsp;&nbsp;
+        Compliance:
+        <label for="complianceSlider"></label><input type = "range" min = "0" max = "10" value = "0" id = "complianceSlider" class = "slider">
+        <br><br>
+        <div id="container"></div>
+        
+        <script src="https://unpkg.com/three@0.139.2/build/three.min.js"></script>
+        <script src="https://unpkg.com/three@0.139.2/examples/js/controls/OrbitControls.js"></script>
+        
+        <script src="../../../Engine/Algorithms/MathMethods.js"></script>
+        <script src="../../../Engine/Algorithms/Grabber.js"></script>
+        <script src="../../../Engine/Physics/Constraints.js"></script>
+        <script src="../../../Engine/Framework/PhysicsWorld.js"></script>
+        <script src="../../../Engine/Framework/PhysicsObject.js"></script>
+        
+        <script src="../../GeometryData/[14] ClothData.js"></script>
+    
+        <script>
+            let gPhysicsScene = {
+                gravity : [0.0, -10.0, 0.0],
+                dt : 1.0 / 60.0,
+                numSubsteps : 10,
+                paused: true,
+                objects: [],
+            };
+
+            class ClothWorld extends PhysicsWorldBase {
+                initPhysics() {
+                    let cloth = new Cloth(clothMeshes, this.ThreeScene);
+                    this.PhysicsScene.objects.push(cloth);
+                    this.setTargetLayer(1);
+
+                    document.getElementById("numTris").innerHTML = (cloth.triIds.length / 3).toString();
+                    document.getElementById("numVerts").innerHTML = (cloth.numParticles).toString();
+                }
+            }
+
+            class Cloth extends PhysicsObjectGrabable {
+                constructor(mesh, scene, bendCompliance = 100.0) {
+                    super();
+
+                    // physics
+                    this.numParticles = mesh.verts.length / 3;
+                    this.pos = new Float32Array(mesh.verts);
+                    this.prevPos = new Float32Array(mesh.verts);
+                    this.triIds = mesh.faceTriIds;
+                    this.vel = new Float32Array(this.numParticles);
+                    this.invMass = new Float32Array(this.numParticles);
+
+                    this.initStretchAndBend(bendCompliance);
+                    this.initPhysics();
+
+                    this.grads = new Float32Array(4 * 3);
+
+                    // visual edge mesh
+                    let geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+                    geometry.setIndex(this.edgeIds);
+                    let lineMaterial = new THREE.LineBasicMaterial({color: 0xff0000, linewidth: 2});
+                    this.edgeMesh = new THREE.LineSegments(geometry, lineMaterial);
+                    this.edgeMesh.visible = false;
+                    scene.add(this.edgeMesh);
+
+                    // visual tri mesh
+                    geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+                    geometry.setIndex(this.triIds);
+                    let visMaterial = new THREE.MeshPhongMaterial({color: 0x87CEEB, side: THREE.DoubleSide});
+                    this.triMesh = new THREE.Mesh(geometry, visMaterial);
+                    this.triMesh.castShadow = true;
+                    this.triMesh.userData = this;
+                    this.triMesh.layers.enable(1);
+                    geometry.computeVertexNormals();
+                    scene.add(this.triMesh);
+
+                    this.updateMeshes();
+                }
+
+                findTriangleEdgeNeighbors() {
+                    let edges = [];
+                    let numTri = this.triIds.length / 3;
+
+                    // find all edges
+                    for (let triIndex = 0; triIndex < numTri; triIndex++) {
+                        for (let triVertIndex = 0; triVertIndex < 3; triVertIndex++) {
+                            let edgeVertId0 = this.triIds[triIndex * 3 + triVertIndex];
+                            let edgeVertId1 = this.triIds[triIndex * 3 + (triVertIndex + 1) % 3];
+
+                            edges.push({
+                                id0: Math.min(edgeVertId0, edgeVertId1),
+                                id1: Math.max(edgeVertId0, edgeVertId1),
+                                index: triIndex * 3 + triVertIndex
+                            });
+                        }
+                    }
+
+                    // sort every edge by id0(start) and id1(end) vertex
+                    edges.sort((left, right) => ((left.id0 < right.id0 || (left.id0 === right.id0 && left.id1 < right.id1)) ? -1 : 1));
+
+                    // find all edge neighbors
+                    let edgeNeighbors = new Float32Array(numTri * 3);
+                    edgeNeighbors.fill(-1);
+
+                    for (let nrIndex = 0; nrIndex < edges.length - 1; nrIndex += 2) {
+                        let edge0 = edges[nrIndex];
+                        let edge1 = edges[nrIndex + 1];
+
+                        // if both edges have the same id0(start) and id1(end) vertex, they are neighbors
+                        if (edge0.id0 === edge1.id0 && edge0.id1 === edge1.id1) {
+                            edgeNeighbors[edge0.index] = edge1.index;
+                            edgeNeighbors[edge1.index] = edge0.index;
+                        }
+                    }
+
+                    return edgeNeighbors;
+                }
+
+                initStretchAndBend(bendCompliance) {
+                    let edgeNeighbors = this.findTriangleEdgeNeighbors();
+                    let numTri = this.triIds.length / 3;
+                    let triPairIds = [];
+
+                    this.edgeIds = [];
+
+                    for (let triIndex = 0; triIndex < numTri; triIndex++) {
+                        for (let triVertIndex = 0; triVertIndex < 3; triVertIndex++) {
+                            let edgeVertId0 = this.triIds[triIndex * 3 + triVertIndex];
+                            let edgeVertId1 = this.triIds[triIndex * 3 + (triVertIndex + 1) % 3];
+
+                            let neighborEdgeIndex = edgeNeighbors[triIndex * 3 + triVertIndex];
+                            // ensure every edge only calc once
+                            if (neighborEdgeIndex < 0 || edgeVertId0 < edgeVertId1) {
+                                this.edgeIds.push(edgeVertId0);
+                                this.edgeIds.push(edgeVertId1);
+                            }
+
+                            // current edge has neighbor
+                            if (neighborEdgeIndex >= 0) {
+                                let edgeVertId2 = triIndex * 3 + (triVertIndex + 2) % 3;
+
+                                let neighborTriIndex = Math.floor(neighborEdgeIndex / 3);
+                                let neighborTriVertIndex = neighborEdgeIndex % 3;
+
+                                let neighborTriVertId = neighborTriIndex * 3 + (neighborTriVertIndex + 2) % 3;
+
+                                // triPairIds.push(edgeVertId0); // current tri vert id 0
+                                // triPairIds.push(edgeVertId1); // current tri vert id 1
+                                triPairIds.push(edgeVertId2); // current tri vert id 2
+                                triPairIds.push(neighborTriVertId); // neighbor triangle vert id
+                            }
+                        }
+                    }
+
+                    this.stretchIds = new Int32Array(this.edgeIds);
+                    this.stretchLengths = new Float32Array(this.stretchIds.length / 2);
+                    this.stretchCompliance = 0.0;
+
+                    this.bendIds = new Int32Array(triPairIds);
+                    this.bendLengths = new Float32Array(this.bendIds.length / 2);
+                    this.bendCompliance = bendCompliance;
+                }
+
+                initPhysics() {
+                    this.invMass.fill(0.0);
+
+                    let numTris = this.triIds.length / 3;
+                    let e0 = [0.0, 0.0, 0.0];
+                    let e1 = [0.0, 0.0, 0.0];
+                    let c = [0.0, 0.0, 0.0];
+
+                    for (let i = 0; i < numTris; i++) {
+                        let id0 = this.triIds[3 * i];
+                        let id1 = this.triIds[3 * i + 1];
+                        let id2 = this.triIds[3 * i + 2];
+
+                        vecSetDiff(e0,0, this.pos,id1, this.pos,id0);
+                        vecSetDiff(e1,0, this.pos,id2, this.pos,id0);
+                        vecSetCross(c,0, e0,0, e1,0);
+                        let A = 0.5 * Math.sqrt(vecLengthSquared(c,0));
+
+                        let pInvMass = A > 0.0 ? 1.0 / A / 3.0 : 0.0;
+                        this.invMass[id0] += pInvMass;
+                        this.invMass[id1] += pInvMass;
+                        this.invMass[id2] += pInvMass;
+                    }
+
+                    for (let i = 0; i < this.stretchLengths.length; i++) {
+                        let id0 = this.stretchIds[2 * i];
+                        let id1 = this.stretchIds[2 * i + 1];
+                        this.stretchLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
+                    }
+
+                    for (let i = 0; i < this.bendLengths.length; i++) {
+                        let id0 = this.bendIds[2 * i];
+                        let id1 = this.bendIds[2 * i + 1];
+                        this.bendLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
+                    }
+
+                    // attach
+                    let minX = Number.MAX_VALUE;
+                    let maxX = -Number.MAX_VALUE;
+                    let maxY = -Number.MAX_VALUE;
+
+                    for (let i = 0; i < this.numParticles; i++) {
+                        minX = Math.min(minX, this.pos[3 * i]);
+                        maxX = Math.max(maxX, this.pos[3 * i]);
+                        maxY = Math.max(maxY, this.pos[3 * i + 1]);
+                    }
+
+                    let eps = 0.0001;
+                    for (let i = 0; i < this.numParticles; i++) {
+                        let x = this.pos[3 * i];
+                        let y = this.pos[3 * i + 1];
+                        if ((y > maxY - eps) && (x < minX + eps || x > maxX - eps))
+                            this.invMass[i] = 0.0;
+                    }
+                }
+
+                updateMeshes() {
+                    this.triMesh.geometry.computeVertexNormals();
+                    this.triMesh.geometry.attributes.position.needsUpdate = true;
+                    this.triMesh.geometry.computeBoundingSphere();
+
+                    this.edgeMesh.geometry.attributes.position.needsUpdate = true;
+                }
+
+                // endFrame() {
+                //     this.updateMeshes();
+                // }
+
+                preSolve(dt, gravity) {
+                    for (let i = 0; i < this.numParticles; i++) {
+                        if (this.invMass[i] === 0.0)
+                            continue;
+
+                        vecAdd(this.vel,i, gravity,0, dt);
+                        vecCopy(this.prevPos,i, this.pos,i);
+                        vecAdd(this.pos,i, this.vel,i, dt);
+
+                        let y = this.pos[3 * i + 1];
+                        if (y < 0.0) {
+                            vecCopy(this.pos,i, this.prevPos,i);
+                            this.pos[3 * i + 1] = 0.0;
+                        }
+                    }
+                }
+
+                solve(dt) {
+                    Constraints.solveEdges(this.pos, this.stretchLengths, this.stretchIds, this.invMass, this.grads, this.stretchCompliance, dt);
+                    Constraints.solveEdges(this.pos, this.bendLengths, this.bendIds, this.invMass, this.grads, this.bendCompliance, dt);
+                }
+
+                postSolve(dt) {
+                    for (let i = 0; i < this.numParticles; i++) {
+                        if (this.invMass[i] === 0.0)
+                            continue;
+                        vecSetDiff(this.vel,i, this.pos,i, this.prevPos,i, 1.0 / dt);
+                    }
+                    this.updateMeshes();
+                }
+            }
+
+            function run() {
+                gWorld.run();
+            }
+
+            function restart() {
+                gWorld.restart();
+            }
+            
+            registerWorld(new ClothWorld(gPhysicsScene, container, true));
+            
+        </script>
+    </body>
+</html>
