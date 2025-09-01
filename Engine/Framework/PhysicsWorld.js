@@ -81,7 +81,10 @@ class PhysicsWorldBase
         this.Renderer.shadowMap.enabled = true;
         this.Renderer.setPixelRatio( window.devicePixelRatio );
         this.Renderer.setSize( 0.8 * window.innerWidth, 0.8 * window.innerHeight );
-        window.addEventListener( 'resize', this.onWindowResize, false );
+        
+        this.handleOnWindowResize = this.onWindowResize.bind(this);
+        window.addEventListener( 'resize', this.handleOnWindowResize, false );
+        
         this.container.appendChild( this.Renderer.domElement );        
     }
 
