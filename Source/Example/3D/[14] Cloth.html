@@ -73,7 +73,7 @@
                     this.pos = new Float32Array(mesh.verts);
                     this.prevPos = new Float32Array(mesh.verts);
                     this.triIds = mesh.faceTriIds;
-                    this.vel = new Float32Array(this.numParticles);
+                    this.vel = new Float32Array(3 * this.numParticles);
                     this.invMass = new Float32Array(this.numParticles);
 
                     this.initStretchAndBend(bendCompliance);
@@ -165,15 +165,17 @@
 
                             // current edge has neighbor
                             if (neighborEdgeIndex >= 0) {
-                                let edgeVertId2 = triIndex * 3 + (triVertIndex + 2) % 3;
+                                let edgeVertId2 = this.triIds[triIndex * 3 + (triVertIndex + 2) % 3];
 
                                 let neighborTriIndex = Math.floor(neighborEdgeIndex / 3);
                                 let neighborTriVertIndex = neighborEdgeIndex % 3;
 
-                                let neighborTriVertId = neighborTriIndex * 3 + (neighborTriVertIndex + 2) % 3;
+                                let neighborTriVertId = this.triIds[neighborTriIndex * 3 + (neighborTriVertIndex + 2) % 3];
 
                                 // triPairIds.push(edgeVertId0); // current tri vert id 0
                                 // triPairIds.push(edgeVertId1); // current tri vert id 1
+                                
+                                // here just calc the two diagonal point
                                 triPairIds.push(edgeVertId2); // current tri vert id 2
                                 triPairIds.push(neighborTriVertId); // neighbor triangle vert id
                             }
@@ -225,7 +227,7 @@
                         this.bendLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
                     }
 
-                    // attach
+                    // let cloth attach on the top
                     let minX = Number.MAX_VALUE;
                     let maxX = -Number.MAX_VALUE;
                     let maxY = -Number.MAX_VALUE;
@@ -252,10 +254,6 @@
 
                     this.edgeMesh.geometry.attributes.position.needsUpdate = true;
                 }
-
-                // endFrame() {
-                //     this.updateMeshes();
-                // }
 
                 preSolve(dt, gravity) {
                     for (let i = 0; i < this.numParticles; i++) {
