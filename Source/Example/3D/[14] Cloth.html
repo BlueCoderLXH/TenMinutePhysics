@@ -24,7 +24,11 @@
         <h1>Cloth Simulation</h1>
         <button id = "buttonRun" onclick="run()" class="button">Run</button>
         <button onclick="restart()" class="button">Restart</button>
-        <button onclick="newBody()" class="button">Bodies++</button>&nbsp;&nbsp;
+        <label>
+            <input type="checkbox" onclick="onShowEdges()">
+            Show edges
+        </label>
+        
         <br><br>
         <span id = "numTris">0</span> tris&nbsp;&nbsp;
         <span id = "numVerts">0</span> verts&nbsp;&nbsp;
@@ -50,22 +54,45 @@
                 dt : 1.0 / 60.0,
                 numSubsteps : 10,
                 paused: true,
+                showEdges: false,
                 objects: [],
             };
 
             class ClothWorld extends PhysicsWorldBase {
+                initThreeScene_Camera() {
+                    super.initThreeScene_Camera();
+                    this.Camera.position.set(0, 1, 1);
+
+                    this.CameraControl.target = new THREE.Vector3(0.0, 0.6, 0.0);
+                }
+                
                 initPhysics() {
                     let cloth = new Cloth(clothMeshes, this.ThreeScene);
                     this.PhysicsScene.objects.push(cloth);
                     this.setTargetLayer(1);
-
-                    document.getElementById("numTris").innerHTML = (cloth.triIds.length / 3).toString();
-                    document.getElementById("numVerts").innerHTML = (cloth.numParticles).toString();
+                }
+                
+                initUI() {
+                    let numTris = 0;
+                    let numVerts = 0;
+                    for (let i=0; i < this.PhysicsScene.objects.length; i++) {
+                        let object = this.PhysicsScene.objects[i];
+                        numTris += object.triIds.length;
+                        numVerts += object.numParticles;
+                    }
+                    
+                    document.getElementById("numTris").innerHTML = numTris.toString();
+                    document.getElementById("numVerts").innerHTML = numVerts.toString();
+                    
+                    document.getElementById("complianceSlider").oninput = function() {
+                        for (let i = 0; i < gPhysicsScene.objects.length; i++)
+                            gPhysicsScene.objects[i].bendCompliance = this.value * 50.0;
+                    }
                 }
             }
 
             class Cloth extends PhysicsObjectGrabable {
-                constructor(mesh, scene, bendCompliance = 100.0) {
+                constructor(mesh, scene, bendCompliance = 0.0) {
                     super();
 
                     // physics
@@ -75,10 +102,10 @@
                     this.triIds = mesh.faceTriIds;
                     this.vel = new Float32Array(3 * this.numParticles);
                     this.invMass = new Float32Array(this.numParticles);
-
-                    this.initStretchAndBend(bendCompliance);
+                    
                     this.initPhysics();
 
+                    this.bendCompliance = bendCompliance;
                     this.grads = new Float32Array(4 * 3);
 
                     // visual edge mesh
@@ -144,7 +171,7 @@
                     return edgeNeighbors;
                 }
 
-                initStretchAndBend(bendCompliance) {
+                initStretchAndBend() {
                     let edgeNeighbors = this.findTriangleEdgeNeighbors();
                     let numTri = this.triIds.length / 3;
                     let triPairIds = [];
@@ -188,10 +215,12 @@
 
                     this.bendIds = new Int32Array(triPairIds);
                     this.bendLengths = new Float32Array(this.bendIds.length / 2);
-                    this.bendCompliance = bendCompliance;
+                    this.bendCompliance = 0.0;
                 }
 
                 initPhysics() {
+                    this.initStretchAndBend();
+                    
                     this.invMass.fill(0.0);
 
                     let numTris = this.triIds.length / 3;
@@ -199,6 +228,7 @@
                     let e1 = [0.0, 0.0, 0.0];
                     let c = [0.0, 0.0, 0.0];
 
+                    // calc inverse mass value for every vertex
                     for (let i = 0; i < numTris; i++) {
                         let id0 = this.triIds[3 * i];
                         let id1 = this.triIds[3 * i + 1];
@@ -207,44 +237,57 @@
                         vecSetDiff(e0,0, this.pos,id1, this.pos,id0);
                         vecSetDiff(e1,0, this.pos,id2, this.pos,id0);
                         vecSetCross(c,0, e0,0, e1,0);
-                        let A = 0.5 * Math.sqrt(vecLengthSquared(c,0));
+                        // calc the area of this triangle
+                        let triangleArea = 0.5 * Math.sqrt(vecLengthSquared(c,0));
 
-                        let pInvMass = A > 0.0 ? 1.0 / A / 3.0 : 0.0;
+                        // simply use (triangle's area / 3) to simulate inverse mass value for every vertex
+                        let pInvMass = triangleArea > 0.0 ? 1.0 / triangleArea / 3.0 : 0.0;
                         this.invMass[id0] += pInvMass;
                         this.invMass[id1] += pInvMass;
                         this.invMass[id2] += pInvMass;
                     }
 
+                    // calc stretch length for every edge
                     for (let i = 0; i < this.stretchLengths.length; i++) {
                         let id0 = this.stretchIds[2 * i];
                         let id1 = this.stretchIds[2 * i + 1];
                         this.stretchLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
                     }
 
+                    // calc bend length for every two diagonal vertexes
                     for (let i = 0; i < this.bendLengths.length; i++) {
                         let id0 = this.bendIds[2 * i];
                         let id1 = this.bendIds[2 * i + 1];
                         this.bendLengths[i] = Math.sqrt(vecDistSquared(this.pos,id0, this.pos,id1));
                     }
 
-                    // let cloth attach on the top
+                    // find left-top and right-top vertex
                     let minX = Number.MAX_VALUE;
                     let maxX = -Number.MAX_VALUE;
                     let maxY = -Number.MAX_VALUE;
+                    let leftTopIndex = -1;
+                    let rightTopIndex = -1;
 
-                    for (let i = 0; i < this.numParticles; i++) {
-                        minX = Math.min(minX, this.pos[3 * i]);
-                        maxX = Math.max(maxX, this.pos[3 * i]);
-                        maxY = Math.max(maxY, this.pos[3 * i + 1]);
-                    }
-
-                    let eps = 0.0001;
                     for (let i = 0; i < this.numParticles; i++) {
                         let x = this.pos[3 * i];
-                        let y = this.pos[3 * i + 1];
-                        if ((y > maxY - eps) && (x < minX + eps || x > maxX - eps))
-                            this.invMass[i] = 0.0;
+                        let y = this.pos[3 * i + 1];                        
+                        
+                        if (x <= minX && y >= maxY) {
+                            leftTopIndex = i;
+                        }
+
+                        if (x >= maxX && y >= maxY) {
+                            rightTopIndex = i;
+                        }                        
+                        
+                        minX = Math.min(minX, x);
+                        maxX = Math.max(maxX, x);
+                        maxY = Math.max(maxY, y);
                     }
+
+                    // let cloth attach on the left-top and right-top
+                    this.invMass[leftTopIndex] = 0.0;
+                    this.invMass[rightTopIndex] = 0.0;
                 }
 
                 updateMeshes() {
@@ -293,6 +336,16 @@
 
             function restart() {
                 gWorld.restart();
+            }
+            
+            function onShowEdges() {
+                let ps = gPhysicsScene;
+                ps.showEdges = !ps.showEdges;
+                
+                for (let i = 0; i < ps.objects.length; i++) {
+                    ps.objects[i].triMesh.visible = !ps.showEdges;
+                    ps.objects[i].edgeMesh.visible = ps.showEdges;
+                }
             }
             
             registerWorld(new ClothWorld(gPhysicsScene, container, true));
