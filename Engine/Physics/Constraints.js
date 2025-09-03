@@ -1,7 +1,8 @@
 ﻿
 class Constraints {
     // temp buffer
-    static temp = new Float32Array(4 * 3);
+    static tempBuffer = new Float32Array(4 * 3);
+    static gradsBuffer = new Float32Array(4 * 3);
     
     // the indices order to calc gradient
     // the calc formula:
@@ -21,11 +22,11 @@ class Constraints {
      * @param edgeLengths the edge length array
      * @param edgeIds edge's two vertices index in pos array
      * @param invMass the inverse mass value for each mass point
-     * @param grads gradient array
      * @param compliance edge constraint compliance
      * @param dt delta simulation time (equal to delta tick time commonly)
      */
-    static solveEdges(pos, edgeLengths, edgeIds, invMass, grads, compliance, dt) {
+    static solveEdges(pos, edgeLengths, edgeIds, invMass, compliance, dt) {
+        let gradsBuffer = Constraints.gradsBuffer;;
         let alpha = compliance / dt /dt;
 
         for (let i = 0; i < edgeLengths.length; i++) {
@@ -38,17 +39,17 @@ class Constraints {
             if (w === 0.0)
                 continue;
 
-            vecSetDiff(grads,0, pos,id0, pos,id1);
-            let len = Math.sqrt(vecLengthSquared(grads,0));
+            vecSetDiff(gradsBuffer,0, pos,id0, pos,id1);
+            let len = Math.sqrt(vecLengthSquared(gradsBuffer,0));
             if (len === 0.0)
                 continue;
             
-            vecScale(grads,0, 1.0 / len);
+            vecScale(gradsBuffer,0, 1.0 / len);
             let restLen = edgeLengths[i];
             let C = len - restLen;
             let lambda = -C / (w + alpha);
-            vecAdd(pos,id0, grads,0, lambda * w0);
-            vecAdd(pos,id1, grads,0, -lambda * w1);
+            vecAdd(pos,id0, gradsBuffer,0, lambda * w0);
+            vecAdd(pos,id1, gradsBuffer,0, -lambda * w1);
         }
     }
     
@@ -65,14 +66,14 @@ class Constraints {
      * 
      * @param pos the vertices position array
      * @param tetIds the tetrahedron vertices index array
-     * @param grads gradient array
      * @param invMass the inverse mass value for each mass point
      * @param restVols last volume array for all tetrahedrons
      * @param compliance edge constraint compliance
      * @param dt delta simulation time (equal to delta tick time commonly)
      */
-    static solveVolumes(pos, tetIds, grads, invMass, restVols, compliance, dt) {
-        let tempArr = Constraints.temp;
+    static solveVolumes(pos, tetIds, invMass, restVols, compliance, dt) {
+        let tempBuffer = Constraints.tempBuffer;
+        let gradsBuffer = Constraints.gradsBuffer;
         let alpha = compliance / dt /dt;
         let numTets = tetIds.length / 4;
 
@@ -85,12 +86,12 @@ class Constraints {
                 let id1 = tetIds[4 * i + Constraints.volIdOrder[j][1]];
                 let id2 = tetIds[4 * i + Constraints.volIdOrder[j][2]];
 
-                vecSetDiff(tempArr,0, pos,id1, pos,id0);
-                vecSetDiff(tempArr,1, pos,id2, pos,id0);
-                vecSetCross(grads,j, tempArr,0, tempArr,1);
+                vecSetDiff(tempBuffer,0, pos,id1, pos,id0);
+                vecSetDiff(tempBuffer,1, pos,id2, pos,id0);
+                vecSetCross(gradsBuffer,j, tempBuffer,0, tempBuffer,1);
                 // vecScale(this.grads,j, 1.0/6.0);
 
-                w += invMass[tetIds[4 * i + j]] * vecLengthSquared(grads,j);
+                w += invMass[tetIds[4 * i + j]] * vecLengthSquared(gradsBuffer,j);
             }
 
             if (w === 0.0)
@@ -103,7 +104,7 @@ class Constraints {
 
             for (let j = 0; j < 4; j++) {
                 let id = tetIds[4 * i + j];
-                vecAdd(pos,id, grads,j, lambda * invMass[id]);
+                vecAdd(pos,id, gradsBuffer,j, lambda * invMass[id]);
             }
         }
     }
@@ -116,18 +117,38 @@ class Constraints {
      * ·: dot product
      */
     static getTetVolume(pos, tetIds, nr) {
-        let tempArr = Constraints.temp;
+        let tempBuffer = Constraints.tempBuffer;
 
         let id0 = tetIds[4 * nr];
         let id1 = tetIds[4 * nr + 1];
         let id2 = tetIds[4 * nr + 2];
         let id3 = tetIds[4 * nr + 3];
         
-        vecSetDiff(tempArr,0,  pos,id1,  pos,id0);
-        vecSetDiff(tempArr,1,  pos,id2,  pos,id0);
-        vecSetDiff(tempArr,2,  pos,id3,  pos,id0);
+        vecSetDiff(tempBuffer,0,  pos,id1,  pos,id0);
+        vecSetDiff(tempBuffer,1,  pos,id2,  pos,id0);
+        vecSetDiff(tempBuffer,2,  pos,id3,  pos,id0);
         
-        vecSetCross(tempArr,3, tempArr,0, tempArr,1);
-        return vecDot(tempArr,3, tempArr,2) / 6.0;
-    }    
+        vecSetCross(tempBuffer,3, tempBuffer,0, tempBuffer,1);
+        return vecDot(tempBuffer,3, tempBuffer,2) / 6.0;
+    }
+    
+    /**
+     * calc the area of current parallelogram
+     */
+    static getArea(pos, id0, id1, id2) {
+        let tempBuffer = Constraints.tempBuffer;
+
+        vecSetDiff(tempBuffer,0, pos,id1, pos,id0);
+        vecSetDiff(tempBuffer,1, pos,id2, pos,id0);
+        vecSetCross(tempBuffer,2, tempBuffer,0, tempBuffer,1);
+        
+        return Math.sqrt(vecLengthSquared(tempBuffer,2));
+    }
+
+    /**
+     * calc the area of current triangle
+     */
+    static getTriArea(pos, id0, id1, id2) {
+        return 0.5 * Constraints.getArea(pos, id0, id1, id2);
+    }
 }

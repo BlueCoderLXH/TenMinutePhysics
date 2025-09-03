@@ -96,8 +96,6 @@
         
                     this.edgeCompliance = edgeCompliance;
                     this.volCompliance = volCompliance;
-                    
-                    this.grads = new Float32Array(4 * 3);
         
                     this.initPhysics();
         
@@ -186,8 +184,8 @@
                     // 
                     // one distance constraint per edge
                     // one volume constraint per tetrahedron
-                    Constraints.solveEdges(this.pos, this.edgeLengths, this.edgeIds, this.invMass, this.grads, this.edgeCompliance, dt);
-                    Constraints.solveVolumes(this.pos, this.tetIds, this.grads, this.invMass, this.restVol, this.volCompliance, dt);
+                    Constraints.solveEdges(this.pos, this.edgeLengths, this.edgeIds, this.invMass, this.edgeCompliance, dt);
+                    Constraints.solveVolumes(this.pos, this.tetIds, this.invMass, this.restVol, this.volCompliance, dt);
                 }
         
                 postSolve(dt) {

@@ -106,7 +106,6 @@
                     this.initPhysics();
 
                     this.bendCompliance = bendCompliance;
-                    this.grads = new Float32Array(4 * 3);
 
                     // visual edge mesh
                     let geometry = new THREE.BufferGeometry();
@@ -224,21 +223,14 @@
                     this.invMass.fill(0.0);
 
                     let numTris = this.triIds.length / 3;
-                    let e0 = [0.0, 0.0, 0.0];
-                    let e1 = [0.0, 0.0, 0.0];
-                    let c = [0.0, 0.0, 0.0];
-
                     // calc inverse mass value for every vertex
                     for (let i = 0; i < numTris; i++) {
                         let id0 = this.triIds[3 * i];
                         let id1 = this.triIds[3 * i + 1];
                         let id2 = this.triIds[3 * i + 2];
-
-                        vecSetDiff(e0,0, this.pos,id1, this.pos,id0);
-                        vecSetDiff(e1,0, this.pos,id2, this.pos,id0);
-                        vecSetCross(c,0, e0,0, e1,0);
+                        
                         // calc the area of this triangle
-                        let triangleArea = 0.5 * Math.sqrt(vecLengthSquared(c,0));
+                        let triangleArea = Constraints.getTriArea(this.pos, id0, id1, id2);
 
                         // simply use (triangle's area / 3) to simulate inverse mass value for every vertex
                         let pInvMass = triangleArea > 0.0 ? 1.0 / triangleArea / 3.0 : 0.0;
@@ -316,8 +308,8 @@
                 }
 
                 solve(dt) {
-                    Constraints.solveEdges(this.pos, this.stretchLengths, this.stretchIds, this.invMass, this.grads, this.stretchCompliance, dt);
-                    Constraints.solveEdges(this.pos, this.bendLengths, this.bendIds, this.invMass, this.grads, this.bendCompliance, dt);
+                    Constraints.solveEdges(this.pos, this.stretchLengths, this.stretchIds, this.invMass, this.stretchCompliance, dt);
+                    Constraints.solveEdges(this.pos, this.bendLengths, this.bendIds, this.invMass, this.bendCompliance, dt);
                 }
 
                 postSolve(dt) {
